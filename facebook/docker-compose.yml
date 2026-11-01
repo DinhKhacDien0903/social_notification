@@ -5,6 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: social-listener-rust
     restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
     ports:
       - "8000:8000"
     environment:

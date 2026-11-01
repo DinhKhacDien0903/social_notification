@@ -18,7 +18,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY migrations ./migrations
 COPY src ./src
 
-RUN cargo build --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/social-listener/target \
+    cargo build --release && cp /usr/src/social-listener/target/release/social-listener /usr/local/bin/social-listener
 
 # Stage 2: Final Runtime Image
 FROM debian:bookworm-slim
@@ -45,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /usr/src/social-listener/target/release/social-listener /app/social-listener
+COPY --from=builder /usr/local/bin/social-listener /app/social-listener
 COPY bin /app/bin
 RUN chmod +x /app/bin/* /app/social-listener
 
