@@ -1,0 +1,23 @@
+services:
+  social-listener:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: social-listener-rust
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
+      - FB_BIN_PATH=/app/bin/fb
+      - CHROME_PROFILE_DIR=/app/runtime/profile
+      - CRAWL_INTERVAL_SECONDS=300
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-disabled}
+      - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://host.docker.internal:5000/api/v1/webhooks/social-leads}
+      - TO_KIEN_TOKEN=${TO_KIEN_TOKEN:-secret_token}
+    volumes:
+      - ./data:/app/data
+      - ./runtime/profile:/app/runtime/profile
+    shm_size: '1gb'
