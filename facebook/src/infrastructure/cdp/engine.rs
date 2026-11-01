@@ -9,15 +9,17 @@ use crate::application::interfaces::{FacebookEngine, RawPostDto};
 pub struct FacebookCliEngine {
     fb_bin_path: String,
     profile_dir: String,
+    fb_cdp: String,
     url_regex: Regex,
 }
 
 impl FacebookCliEngine {
-    pub fn new(fb_bin_path: String, profile_dir: String) -> Self {
+    pub fn new(fb_bin_path: String, profile_dir: String, fb_cdp: String) -> Self {
         let url_regex = Regex::new(r"/(?:groups/[^/]+/posts/|posts/|permalink\.php\?story_fbid=)(\d+)").unwrap();
         Self {
             fb_bin_path,
             profile_dir,
+            fb_cdp,
             url_regex,
         }
     }
@@ -54,6 +56,7 @@ impl FacebookEngine for FacebookCliEngine {
             .arg("--urls")
             .arg("--full")
             .env("FB_PROFILE", &self.profile_dir)
+            .env("FB_CDP", &self.fb_cdp)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -128,13 +131,14 @@ impl FacebookEngine for FacebookCliEngine {
         let mut cmd = Command::new(&self.fb_bin_path);
         cmd.arg("status")
             .env("FB_PROFILE", &self.profile_dir)
+            .env("FB_CDP", &self.fb_cdp)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         let output = cmd.output().await?;
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            Ok(!stdout.contains("LOGIN_REQUIRED") && !stdout.contains("CHECKPOINT"))
+            Ok(!stdout.contains("LOGIN_REQUIRED") && !stdout.contains("CHECKPOINT") && !stdout.contains("not logged in"))
         } else {
             Ok(false)
         }

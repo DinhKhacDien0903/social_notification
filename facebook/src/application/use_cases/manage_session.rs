@@ -16,13 +16,15 @@ pub struct CookieItem {
 pub struct ManageSessionUseCase {
     session_repo: Arc<dyn SessionRepository>,
     profile_dir: String,
+    fb_cdp: String,
 }
 
 impl ManageSessionUseCase {
-    pub fn new(session_repo: Arc<dyn SessionRepository>, profile_dir: String) -> Self {
+    pub fn new(session_repo: Arc<dyn SessionRepository>, profile_dir: String, fb_cdp: String) -> Self {
         Self {
             session_repo,
             profile_dir,
+            fb_cdp,
         }
     }
 
@@ -43,6 +45,18 @@ impl ManageSessionUseCase {
 
         let cookie_file = profile_path.join(format!("{}_cookies.json", session_id));
         std::fs::write(&cookie_file, cookies_json)?;
+
+        // Gọi CDP script nạp trực tiếp cookies vào Chrome in-memory cookie jar
+        let inject_script = "/app/bin/inject_cookies.py";
+        if std::path::Path::new(inject_script).exists() {
+            let inject_res = tokio::process::Command::new("python3")
+                .arg(inject_script)
+                .output()
+                .await;
+            if let Ok(out) = inject_res {
+                info!("CDP inject_cookies status: {}", out.status);
+            }
+        }
 
         // Đồng bộ cookie trực tiếp vào CSDL SQLite Cookies của Chrome
         let _ = Self::sync_cookies_to_chrome_db(&cookies).await;
@@ -104,7 +118,7 @@ impl ManageSessionUseCase {
                         samesite INTEGER NOT NULL DEFAULT 0,
                         source_scheme INTEGER NOT NULL DEFAULT 2,
                         source_port INTEGER NOT NULL DEFAULT 443,
-                        is_same_party INTEGER NOT NULL DEFAULT 0,
+                        has_cross_site_ancestor INTEGER NOT NULL DEFAULT 0,
                         last_update_utc INTEGER NOT NULL DEFAULT 0,
                         source_type INTEGER NOT NULL DEFAULT 1,
                         PRIMARY KEY (host_key, top_frame_site_key, name, path)
@@ -118,13 +132,13 @@ impl ManageSessionUseCase {
                 for c in cookies {
                     let domain = c.domain.as_deref().unwrap_or(".facebook.com");
                     let path_val = c.path.as_deref().unwrap_or("/");
-                    let is_httponly = if c.name == "xs" { 1 } else { 0 };
+                    let is_httponly = if c.name == "xs" || c.name == "datr" || c.name == "fr" || c.name == "sb" { 1 } else { 0 };
 
                     let _ = sqlx::query(r#"
                         INSERT OR REPLACE INTO cookies (
                             creation_utc, host_key, top_frame_site_key, name, value, encrypted_value,
                             path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires,
-                            is_persistent, priority, samesite, source_scheme, source_port, is_same_party,
+                            is_persistent, priority, samesite, source_scheme, source_port, has_cross_site_ancestor,
                             last_update_utc, source_type
                         ) VALUES (
                             ?, ?, '', ?, ?, X'',

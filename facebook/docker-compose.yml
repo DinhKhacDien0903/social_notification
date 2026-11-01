@@ -13,9 +13,10 @@ services:
       - DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
       - FB_BIN_PATH=/app/bin/fb
       - CHROME_PROFILE_DIR=/app/runtime/profile
-      - CRAWL_INTERVAL_SECONDS=300
+      - CRAWL_INTERVAL_SECONDS=180
+      - FB_CDP=9222
       - GEMINI_API_KEY=${GEMINI_API_KEY:-disabled}
-      - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://host.docker.internal:5000/api/v1/webhooks/social-leads}
+      - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://host.docker.internal:8080/api/v1/webhooks/social-leads}
       - TO_KIEN_TOKEN=${TO_KIEN_TOKEN:-secret_token}
     volumes:
       - ./data:/app/data

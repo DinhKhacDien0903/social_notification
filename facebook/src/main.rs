@@ -98,6 +98,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Seeded target: https://www.facebook.com/groups/690021959247586/");
     }
 
+    // Cập nhật interval 180s (3 phút) và kích hoạt quét ngay cho nhóm 690021959247586
+    sqlx::query("UPDATE social_watch_targets SET interval_seconds = ?, next_due_at = CURRENT_TIMESTAMP, failure_count = 0, enabled = 1 WHERE group_id = '690021959247586'")
+        .bind(config.crawl_interval_seconds)
+        .execute(pool_ref)
+        .await?;
+
     // Xóa các target mẫu khác (không dùng data seed nữa, chỉ giữ nhóm 690021959247586)
     sqlx::query("DELETE FROM social_watch_targets WHERE group_id != '690021959247586'")
         .execute(pool_ref)
@@ -107,6 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fb_engine = Arc::new(FacebookCliEngine::new(
         config.fb_bin_path.clone(),
         config.chrome_profile_dir.clone(),
+        config.fb_cdp.clone(),
     ));
 
     let gemini_ai = Arc::new(GeminiClassifier::new(config.gemini_api_key.clone()));
@@ -146,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_use_case = Arc::new(ManageSessionUseCase::new(
         session_repo.clone(),
         config.chrome_profile_dir.clone(),
+        config.fb_cdp.clone(),
     ));
 
     // 7. Kích hoạt 3 background workers (Tokio tasks)

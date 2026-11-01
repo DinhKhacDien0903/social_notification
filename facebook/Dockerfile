@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     fonts-liberation \
     xdg-utils \
+    python3 \
+    python3-websockets \
     && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
@@ -44,8 +46,8 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /usr/src/social-listener/target/release/social-listener /app/social-listener
-COPY bin/fb /app/bin/fb
-RUN chmod +x /app/bin/fb /app/social-listener
+COPY bin /app/bin
+RUN chmod +x /app/bin/* /app/social-listener
 
 # Copy migrations and JS scripts
 COPY migrations /app/migrations
@@ -60,6 +62,8 @@ ENV PORT=8000 \
     HOST=0.0.0.0 \
     DATABASE_URL=sqlite:///app/social_listener.db?mode=rwc \
     FB_BIN_PATH=/app/bin/fb \
-    CHROME_PROFILE_DIR=/app/runtime/profile
+    CHROME_PROFILE_DIR=/app/runtime/profile \
+    FB_CDP=9222
 
+ENTRYPOINT ["/app/bin/entrypoint.sh"]
 CMD ["/app/social-listener"]
