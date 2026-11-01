@@ -53,7 +53,7 @@ impl FacebookCliEngine {
         fb_cdp.to_string()
     }
 
-    /// Đóng các tab Facebook mở ra trong Chrome CDP sau khi crawl xong để giải phóng CPU và RAM
+    /// Đóng các tab Facebook mở ra trong Chrome CDP sau khi crawl xong để giải phóng triệt để CPU và RAM
     async fn cleanup_cdp_tabs(fb_cdp: &str) {
         let port = if let Some(pos) = fb_cdp.find("127.0.0.1:") {
             let after = &fb_cdp[pos + "127.0.0.1:".len()..];
@@ -65,27 +65,39 @@ impl FacebookCliEngine {
         };
 
         let client = reqwest::Client::new();
+        let host_header = format!("127.0.0.1:{}", port);
+
+        // Đảm bảo luôn mở sẵn 1 tab about:blank nhàn rỗi
+        let new_tab_url = format!("http://127.0.0.1:{}/json/new?about:blank", port);
+        let _ = client.put(&new_tab_url).header("Host", &host_header).send().await;
+
         let list_url = format!("http://127.0.0.1:{}/json/list", port);
         if let Ok(resp) = client
             .get(&list_url)
-            .header("Host", format!("127.0.0.1:{}", port))
+            .header("Host", &host_header)
             .send()
             .await
         {
             if let Ok(pages) = resp.json::<Vec<serde_json::Value>>().await {
                 for p in pages {
-                    if p.get("type").and_then(|t| t.as_str()) == Some("page") {
-                        if let Some(id) = p.get("id").and_then(|i| i.as_str()) {
-                            let close_url = format!("http://127.0.0.1:{}/json/close/{}", port, id);
-                            let _ = client
-                                .get(&close_url)
-                                .header("Host", format!("127.0.0.1:{}", port))
-                                .send()
-                                .await;
-                        }
+                    let tab_type = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let tab_url = p.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                    let id = p.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+                    // Đóng tất cả tab Facebook để hủy triệt để WebWorker và giải phóng CPU
+                    if (tab_type == "page" || tab_type == "other")
+                        && (tab_url.contains("facebook.com") || tab_url.contains("fbsbx.com"))
+                        && !id.is_empty()
+                    {
+                        let close_url = format!("http://127.0.0.1:{}/json/close/{}", port, id);
+                        let _ = client
+                            .get(&close_url)
+                            .header("Host", &host_header)
+                            .send()
+                            .await;
                     }
                 }
-                debug!("Cleaned up lingering Chrome CDP page tabs");
+                debug!("Cleaned up lingering Chrome CDP Facebook tabs");
             }
         }
     }

@@ -6,11 +6,13 @@ services:
     container_name: social-listener-rust
     restart: unless-stopped
     init: true
+    cpus: 0.8
+    mem_limit: 1024M
     deploy:
       resources:
         limits:
-          cpus: '1.5'
-          memory: 1536M
+          cpus: '0.80'
+          memory: 1024M
     ports:
       - "8000:8000"
     environment:
