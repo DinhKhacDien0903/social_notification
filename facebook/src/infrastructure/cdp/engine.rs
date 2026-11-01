@@ -232,7 +232,7 @@ impl FacebookEngine for FacebookCliEngine {
                 let mut hasher = Sha256::new();
                 hasher.update(author.as_bytes());
                 hasher.update(text.as_bytes());
-                let hash = hex::encode(hasher.finalize());
+                let hash = format!("{:x}", hasher.finalize());
                 format!("anon_{}", &hash[..12])
             } else {
                 ref_id.trim_matches('/').replace('/', "_")
