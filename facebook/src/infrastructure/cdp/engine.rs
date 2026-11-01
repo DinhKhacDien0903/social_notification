@@ -28,6 +28,47 @@ impl FacebookCliEngine {
     fn extract_post_id(&self, url: &str) -> Option<String> {
         self.url_regex.captures(url).and_then(|cap| cap.get(1)).map(|m| m.as_str().to_string())
     }
+
+    /// Phân tích chuỗi thời gian bài viết Facebook sang DateTime<Utc>
+    fn parse_facebook_time(time_str: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        let s = time_str.trim().to_lowercase();
+        if s.is_empty() {
+            return None;
+        }
+        let now = chrono::Utc::now();
+        if s == "vừa xong" || s == "just now" {
+            return Some(now);
+        }
+        if let Some(m) = regex::Regex::new(r"(\d+)\s*phút").ok().and_then(|r| r.captures(&s)) {
+            if let Ok(mins) = m[1].parse::<i64>() {
+                return Some(now - chrono::Duration::minutes(mins));
+            }
+        }
+        if let Some(m) = regex::Regex::new(r"(\d+)\s*giờ").ok().and_then(|r| r.captures(&s)) {
+            if let Ok(hours) = m[1].parse::<i64>() {
+                return Some(now - chrono::Duration::hours(hours));
+            }
+        }
+        if let Some(m) = regex::Regex::new(r"(\d+)\s*ngày").ok().and_then(|r| r.captures(&s)) {
+            if let Ok(days) = m[1].parse::<i64>() {
+                return Some(now - chrono::Duration::days(days));
+            }
+        }
+        if let Some(m) = regex::Regex::new(r"(\d+)\s*tháng\s*(\d+)(?:\s*lúc\s*(\d+):(\d+))?").ok().and_then(|r| r.captures(&s)) {
+            let day: u32 = m[1].parse().unwrap_or(1);
+            let month: u32 = m[2].parse().unwrap_or(1);
+            let hour: u32 = m.get(3).and_then(|h| h.as_str().parse().ok()).unwrap_or(0);
+            let min: u32 = m.get(4).and_then(|min| min.as_str().parse().ok()).unwrap_or(0);
+            use chrono::{Datelike, TimeZone};
+            let year = now.year();
+            if let Some(naive_date) = chrono::NaiveDate::from_ymd_opt(year, month, day) {
+                if let Some(naive_dt) = naive_date.and_hms_opt(hour, min, 0) {
+                    return Some(chrono::Utc.from_utc_datetime(&(naive_dt - chrono::Duration::hours(7))));
+                }
+            }
+        }
+        Some(now)
+    }
 }
 
 #[async_trait]
@@ -101,25 +142,29 @@ impl FacebookEngine for FacebookCliEngine {
                 _ => (parts[0], "", "", "", "", ""),
             };
 
-            let post_id = if !url.is_empty() {
-                self.extract_post_id(url).unwrap_or_else(|| ref_id.to_string())
+            let clean_post_id = if let Some(id) = self.extract_post_id(url) {
+                id
+            } else if let Some(id) = self.extract_post_id(ref_id) {
+                id
             } else {
-                ref_id.to_string()
+                ref_id.trim_matches('/').replace('/', "_")
             };
 
             let canonical_url = if !url.is_empty() && url.starts_with("http") {
                 url.to_string()
             } else {
-                format!("https://www.facebook.com/groups/{}/posts/{}/", group_id, post_id)
+                format!("https://www.facebook.com/groups/{}/posts/{}/", group_id, clean_post_id)
             };
 
+            let source_created_at = Self::parse_facebook_time(_time_str);
+
             results.push(RawPostDto {
-                post_id,
+                post_id: clean_post_id,
                 canonical_url,
                 author_display: author.to_string(),
                 text: text.to_string(),
                 text_complete: true,
-                source_created_at: None,
+                source_created_at,
             });
         }
 
