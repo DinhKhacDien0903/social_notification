@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gnupg \
+    sqlite3 \
     libsqlite3-0 \
     libssl3 \
     fonts-liberation \
@@ -36,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends google-chrome-stable \
+    && sed -i 's|"$HERE/chrome"|"$HERE/chrome" --no-sandbox --disable-dev-shm-usage --disable-gpu|g' /opt/google/chrome/google-chrome \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -72,8 +72,8 @@ impl TargetRepository for SqliteDatabase {
         sqlx::query_as::<_, WatchTarget>(
             r#"
             SELECT * FROM social_watch_targets 
-            WHERE enabled = 1 AND next_due_at <= CURRENT_TIMESTAMP 
-            ORDER BY next_due_at ASC 
+            WHERE enabled = 1 AND datetime(next_due_at) <= datetime('now') 
+            ORDER BY datetime(next_due_at) ASC 
             LIMIT ?
             "#,
         )
@@ -263,8 +263,8 @@ impl JobRepository for SqliteDatabase {
             SET status = 'PROCESSING', lease_owner = ?, lease_until = datetime('now', '+' || ? || ' seconds')
             WHERE id IN (
                 SELECT id FROM social_jobs 
-                WHERE (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until < CURRENT_TIMESTAMP))
-                  AND available_at <= CURRENT_TIMESTAMP
+                WHERE (status = 'PENDING' OR (status = 'PROCESSING' AND datetime(lease_until) < datetime('now')))
+                  AND datetime(available_at) <= datetime('now')
                 ORDER BY id ASC
                 LIMIT ?
             )
@@ -383,8 +383,8 @@ impl OutboxRepository for SqliteDatabase {
             SET status = 'PROCESSING', lease_owner = ?, lease_until = datetime('now', '+' || ? || ' seconds')
             WHERE id IN (
                 SELECT id FROM social_outbox 
-                WHERE (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until < CURRENT_TIMESTAMP))
-                  AND available_at <= CURRENT_TIMESTAMP
+                WHERE (status = 'PENDING' OR (status = 'PROCESSING' AND datetime(lease_until) < datetime('now')))
+                  AND datetime(available_at) <= datetime('now')
                 ORDER BY id ASC
                 LIMIT ?
             )

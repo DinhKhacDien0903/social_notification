@@ -76,34 +76,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Seeded default primary session");
     }
 
-    let existing_targets = target_repo.get_all_targets().await?;
-    if existing_targets.is_empty() {
-        let default_targets = vec![
-            NewWatchTarget {
-                platform: "facebook".to_string(),
-                group_id: "690021959247586".to_string(), // ID nhóm trekking mẫu
-                display_name: "Hội Đam Mê Trekking & Leo Núi Việt Nam".to_string(),
-                session_id: "primary".to_string(),
-                enabled: true,
-                interval_seconds: config.crawl_interval_seconds,
-                ordering: "chronological".to_string(),
-            },
-            NewWatchTarget {
-                platform: "facebook".to_string(),
-                group_id: "vietnam.trekking.community".to_string(),
-                display_name: "Cộng Đồng Leo Núi & Cắm Trại Việt Nam".to_string(),
-                session_id: "primary".to_string(),
-                enabled: true,
-                interval_seconds: config.crawl_interval_seconds,
-                ordering: "chronological".to_string(),
-            },
-        ];
+    // Seed duy nhất nhóm Facebook mục tiêu: https://www.facebook.com/groups/690021959247586/
+    let pool_ref = db.pool();
+    let target_69: Option<domain::WatchTarget> = sqlx::query_as(
+        "SELECT * FROM social_watch_targets WHERE group_id = '690021959247586'"
+    )
+    .fetch_optional(pool_ref)
+    .await?;
 
-        for t in default_targets {
-            let _ = target_repo.create_target(t).await?;
-        }
-        info!("Seeded initial watch targets");
+    if target_69.is_none() {
+        let default_target = NewWatchTarget {
+            platform: "facebook".to_string(),
+            group_id: "690021959247586".to_string(),
+            display_name: "Hội Đam Mê Trekking & Leo Núi Việt Nam".to_string(),
+            session_id: "primary".to_string(),
+            enabled: true,
+            interval_seconds: config.crawl_interval_seconds,
+            ordering: "chronological".to_string(),
+        };
+        target_repo.create_target(default_target).await?;
+        info!("Seeded target: https://www.facebook.com/groups/690021959247586/");
     }
+
+    // Xóa các target mẫu khác (không dùng data seed nữa, chỉ giữ nhóm 690021959247586)
+    sqlx::query("DELETE FROM social_watch_targets WHERE group_id != '690021959247586'")
+        .execute(pool_ref)
+        .await?;
 
     // 5. Khởi tạo Adapters ngoại vi
     let fb_engine = Arc::new(FacebookCliEngine::new(
@@ -172,6 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 8. Khởi chạy Axum REST API Server
     let app_state = AppState {
+        db: db.clone(),
         target_repo,
         post_repo,
         lead_repo,

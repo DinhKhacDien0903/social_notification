@@ -44,6 +44,9 @@ impl ManageSessionUseCase {
         let cookie_file = profile_path.join(format!("{}_cookies.json", session_id));
         std::fs::write(&cookie_file, cookies_json)?;
 
+        // Đồng bộ cookie trực tiếp vào CSDL SQLite Cookies của Chrome
+        let _ = Self::sync_cookies_to_chrome_db(&cookies).await;
+
         // Cập nhật CSDL
         let now = Utc::now();
         let existing = self.session_repo.get_session(session_id).await?;
@@ -65,6 +68,91 @@ impl ManageSessionUseCase {
 
         self.session_repo.upsert_session(&session).await?;
         info!("Session '{}' updated to READY (v{})", session_id, version);
+
+        Ok(())
+    }
+
+    async fn sync_cookies_to_chrome_db(cookies: &[CookieItem]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let db_paths = vec![
+            std::path::PathBuf::from("/root/.cache/fb/chrome/Default/Cookies"),
+            std::path::PathBuf::from("/app/runtime/profile/chrome/Default/Cookies"),
+        ];
+
+        for path in db_paths {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            let db_url = format!("sqlite://{}?mode=rwc", path.to_string_lossy());
+            if let Ok(pool) = sqlx::sqlite::SqlitePoolOptions::new().connect(&db_url).await {
+                let _ = sqlx::query(r#"
+                    CREATE TABLE IF NOT EXISTS cookies (
+                        creation_utc INTEGER NOT NULL,
+                        host_key TEXT NOT NULL,
+                        top_frame_site_key TEXT NOT NULL DEFAULT '',
+                        name TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        encrypted_value BLOB NOT NULL DEFAULT X'',
+                        path TEXT NOT NULL DEFAULT '/',
+                        expires_utc INTEGER NOT NULL DEFAULT 0,
+                        is_secure INTEGER NOT NULL DEFAULT 1,
+                        is_httponly INTEGER NOT NULL DEFAULT 0,
+                        last_access_utc INTEGER NOT NULL DEFAULT 0,
+                        has_expires INTEGER NOT NULL DEFAULT 1,
+                        is_persistent INTEGER NOT NULL DEFAULT 1,
+                        priority INTEGER NOT NULL DEFAULT 1,
+                        samesite INTEGER NOT NULL DEFAULT 0,
+                        source_scheme INTEGER NOT NULL DEFAULT 2,
+                        source_port INTEGER NOT NULL DEFAULT 443,
+                        is_same_party INTEGER NOT NULL DEFAULT 0,
+                        last_update_utc INTEGER NOT NULL DEFAULT 0,
+                        source_type INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY (host_key, top_frame_site_key, name, path)
+                    )
+                "#).execute(&pool).await;
+
+                let now_micro = chrono::Utc::now().timestamp_micros();
+                let chrome_now = now_micro + 11644473600_000_000i64;
+                let chrome_expires = chrome_now + (365 * 86400 * 1_000_000i64);
+
+                for c in cookies {
+                    let domain = c.domain.as_deref().unwrap_or(".facebook.com");
+                    let path_val = c.path.as_deref().unwrap_or("/");
+                    let is_httponly = if c.name == "xs" { 1 } else { 0 };
+
+                    let _ = sqlx::query(r#"
+                        INSERT OR REPLACE INTO cookies (
+                            creation_utc, host_key, top_frame_site_key, name, value, encrypted_value,
+                            path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires,
+                            is_persistent, priority, samesite, source_scheme, source_port, is_same_party,
+                            last_update_utc, source_type
+                        ) VALUES (
+                            ?, ?, '', ?, ?, X'',
+                            ?, ?, 1, ?, ?, 1,
+                            1, 1, 0, 2, 443, 0,
+                            ?, 1
+                        )
+                    "#)
+                    .bind(chrome_now)
+                    .bind(domain)
+                    .bind(&c.name)
+                    .bind(&c.value)
+                    .bind(path_val)
+                    .bind(chrome_expires)
+                    .bind(is_httponly)
+                    .bind(chrome_now)
+                    .bind(chrome_now)
+                    .execute(&pool)
+                    .await;
+                }
+
+                let _ = pool.close().await;
+                info!("Synced {} cookies to Chrome DB at {}", cookies.len(), path.display());
+            }
+        }
+
+        // Restart daemon to apply cookies
+        let _ = tokio::process::Command::new("/app/bin/fb").arg("quit").output().await;
 
         Ok(())
     }

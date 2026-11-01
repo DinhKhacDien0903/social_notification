@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub to_kien_webhook_url: String,
     pub to_kien_token: String,
     pub crawl_interval_seconds: i32,
+    pub fb_cdp: String,
 }
 
 impl AppConfig {
@@ -30,12 +31,13 @@ impl AppConfig {
                 .unwrap_or_else(|_| "./runtime/profile".to_string()),
             gemini_api_key: env::var("GEMINI_API_KEY").unwrap_or_else(|_| "disabled".to_string()),
             to_kien_webhook_url: env::var("TO_KIEN_WEBHOOK_URL")
-                .unwrap_or_else(|_| "http://localhost:5000/api/v1/webhooks/social-leads".to_string()),
+                .unwrap_or_else(|_| "http://localhost:8080/api/v1/webhooks/social-leads".to_string()),
             to_kien_token: env::var("TO_KIEN_TOKEN").unwrap_or_else(|_| "secret_token".to_string()),
             crawl_interval_seconds: env::var("CRAWL_INTERVAL_SECONDS")
                 .ok()
                 .and_then(|i| i.parse().ok())
-                .unwrap_or(300),
+                .unwrap_or(180),
+            fb_cdp: env::var("FB_CDP").unwrap_or_else(|_| "9222".to_string()),
         }
     }
 }
