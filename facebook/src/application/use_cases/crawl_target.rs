@@ -47,7 +47,7 @@ impl CrawlTargetUseCase {
         let run_id = Uuid::new_v4().to_string();
         info!("Starting crawl run {} for target group '{}' ({})", run_id, target.display_name, target.group_id);
 
-        let posts_result = self.engine.fetch_group_posts(&target.group_id, 25).await;
+        let posts_result = self.engine.fetch_group_posts(&target.group_id, 10).await;
 
         let raw_posts = match posts_result {
             Ok(p) => p,

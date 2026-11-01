@@ -17,12 +17,9 @@ pub async fn run_scheduler_worker(
             Ok(targets) => {
                 for target in targets {
                     info!("Target '{}' (group: {}) is due. Executing crawl...", target.display_name, target.group_id);
-                    let uc = Arc::clone(&crawl_use_case);
-                    tokio::spawn(async move {
-                        if let Err(e) = uc.execute(&target).await {
-                            error!("Crawl failed for group {}: {}", target.group_id, e);
-                        }
-                    });
+                    if let Err(e) = crawl_use_case.execute(&target).await {
+                        error!("Crawl failed for group {}: {}", target.group_id, e);
+                    }
                 }
             }
             Err(e) => {

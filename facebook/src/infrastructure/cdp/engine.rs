@@ -175,7 +175,6 @@ impl FacebookEngine for FacebookCliEngine {
             .arg("-n")
             .arg(max_posts.to_string())
             .arg("--urls")
-            .arg("--full")
             .env("FB_PROFILE", &self.profile_dir)
             .env("FB_CDP", &cdp_target)
             .stdout(Stdio::piped())
@@ -192,13 +191,13 @@ impl FacebookEngine for FacebookCliEngine {
         // Sau khi crawl xong, đóng toàn bộ tab Facebook để tránh ngốn CPU
         Self::cleanup_cdp_tabs(&cdp_target).await;
 
-        if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        if !output.status.success() && stdout.trim().is_empty() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             warn!("facebook-cli stderr: {}", stderr);
             return Err(format!("facebook-cli exited with error: {}", stderr).into());
         }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
         let mut results = Vec::new();
 
         // Từng dòng TSV từ `fb posts`:
