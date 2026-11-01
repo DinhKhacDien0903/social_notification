@@ -2,7 +2,7 @@
 # Base Image: Debian Bookworm Slim
 
 # Stage 1: Build binary
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /usr/src/social-listener
 
