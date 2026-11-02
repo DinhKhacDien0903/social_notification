@@ -12,6 +12,7 @@ pub struct ClassifyJobsUseCase {
     outbox_repo: Arc<dyn OutboxRepository>,
     classifier_service: Arc<ClassifierService>,
     worker_id: String,
+    outbox_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl ClassifyJobsUseCase {
@@ -22,6 +23,7 @@ impl ClassifyJobsUseCase {
         outbox_repo: Arc<dyn OutboxRepository>,
         classifier_service: Arc<ClassifierService>,
         worker_id: String,
+        outbox_notify: Option<Arc<tokio::sync::Notify>>,
     ) -> Self {
         Self {
             post_repo,
@@ -30,6 +32,7 @@ impl ClassifyJobsUseCase {
             outbox_repo,
             classifier_service,
             worker_id,
+            outbox_notify,
         }
     }
 
@@ -103,6 +106,10 @@ impl ClassifyJobsUseCase {
                                     event_key,
                                     payload: json_str,
                                 }).await;
+                                // Đánh thức worker bắn Webhook ngay lập tức (Instant Webhook Dispatch)
+                                if let Some(ref notify) = self.outbox_notify {
+                                    notify.notify_one();
+                                }
                             }
                         }
                         Err(e) => {

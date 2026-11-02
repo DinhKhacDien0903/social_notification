@@ -7,12 +7,13 @@ services:
     restart: unless-stopped
     init: true
     cpus: 1.5
-    mem_limit: 1536M
+    cpu_shares: 512
+    mem_limit: 1024M
     deploy:
       resources:
         limits:
           cpus: '1.50'
-          memory: 1536M
+          memory: 1024M
     ports:
       - "8000:8000"
     environment:
@@ -31,4 +32,5 @@ services:
     volumes:
       - ./data:/app/data
       - ./runtime/profile:/app/runtime/profile
+      - ./js:/app/js
     shm_size: '1gb'

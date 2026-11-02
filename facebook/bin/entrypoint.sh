@@ -20,11 +20,13 @@ echo "Starting Headless Chrome on CDP port 9222 with performance flags..."
     --media-cache-size=1 \
     --disable-component-update \
     --disable-domain-reliability \
-    --disable-features=OptimizationGuideModelDownloading,OptimizationHints,MediaRouter,Translate,WebUIOmniboxPopup \
+    --disable-features=OptimizationGuideModelDownloading,OptimizationHints,MediaRouter,Translate,WebUIOmniboxPopup,CalculateNativeWinOcclusion \
+    --disable-background-timer-throttling \
+    --disable-renderer-backgrounding \
     --remote-debugging-port=9222 \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \
-    --renderer-process-limit=2 \
+    --renderer-process-limit=1 \
     --disable-background-networking \
     --disable-sync \
     --disable-default-apps \

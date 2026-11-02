@@ -37,17 +37,23 @@ impl FacebookCliEngine {
         let port = fb_cdp.trim_start_matches(':');
         let client = reqwest::Client::new();
         let version_url = format!("http://127.0.0.1:{}/json/version", port);
-        if let Ok(resp) = client
-            .get(&version_url)
-            .header("Host", format!("127.0.0.1:{}", port))
-            .send()
-            .await
-        {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(ws) = json.get("webSocketDebuggerUrl").and_then(|w| w.as_str()) {
-                    info!("Dynamically resolved Chrome CDP WebSocket URL: {}", ws);
-                    return ws.to_string();
+
+        for attempt in 1..=3 {
+            if let Ok(resp) = client
+                .get(&version_url)
+                .header("Host", format!("127.0.0.1:{}", port))
+                .send()
+                .await
+            {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(ws) = json.get("webSocketDebuggerUrl").and_then(|w| w.as_str()) {
+                        info!("Dynamically resolved Chrome CDP WebSocket URL: {}", ws);
+                        return ws.to_string();
+                    }
                 }
+            }
+            if attempt < 3 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             }
         }
         fb_cdp.to_string()
@@ -231,6 +237,7 @@ impl FacebookEngine for FacebookCliEngine {
         let _ = Command::new(&self.fb_bin_path)
             .arg("stop")
             .env("FB_PROFILE", &self.profile_dir)
+            .env("FB_CDP", &cdp_target)
             .output()
             .await;
 

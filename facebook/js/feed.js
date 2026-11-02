@@ -104,14 +104,14 @@
     for(const b of more(msg)){
      pending.push(msg);
      try{
-      window.__fb.press(b);
-     }catch(e){
-      try{b.click();}catch(_){}
+      b.click();
+     }catch(_){
+      try{window.__fb.press(b);}catch(__){}
      }
     }
    }
    // Expand the whole batch together; never cache a card while its text is still collapsed.
-   if(pending.length)await waitFor(()=>pending.every(msg=>!more(msg).length),1500,30);
+   if(pending.length)await waitFor(()=>pending.every(msg=>!more(msg).length),800,30);
   },
   scroll(){window.scrollBy(0,innerHeight*0.7)},
   /* the feed sometimes stops loading at the bottom; leaving and re-entering it starts it again */

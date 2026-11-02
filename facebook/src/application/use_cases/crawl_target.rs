@@ -18,6 +18,7 @@ pub struct CrawlTargetUseCase {
     post_repo: Arc<dyn PostRepository>,
     job_repo: Arc<dyn JobRepository>,
     max_posts: usize,
+    pipeline_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl CrawlTargetUseCase {
@@ -27,6 +28,7 @@ impl CrawlTargetUseCase {
         post_repo: Arc<dyn PostRepository>,
         job_repo: Arc<dyn JobRepository>,
         max_posts: usize,
+        pipeline_notify: Option<Arc<tokio::sync::Notify>>,
     ) -> Self {
         Self {
             engine,
@@ -34,6 +36,7 @@ impl CrawlTargetUseCase {
             post_repo,
             job_repo,
             max_posts,
+            pipeline_notify,
         }
     }
 
@@ -56,8 +59,14 @@ impl CrawlTargetUseCase {
             Ok(p) => p,
             Err(e) => {
                 error!("Failed to fetch posts for group {}: {}", target.group_id, e);
-                // Cập nhật failure_count và next_due_at lùi lại
-                let next_due = Utc::now() + Duration::seconds(target.interval_seconds as i64);
+                // Quick Retry cho lần lỗi đầu tiên (120s), lần hai (300s),
+                // và Exponential Backoff từ lần 3 trở đi để bảo vệ tài khoản khỏi checkpoint
+                let retry_delay_seconds = match target.failure_count {
+                    0 => 120, // Thử lại nhanh sau 2 phút để không bỏ sót lead
+                    1 => 300, // Thử lại sau 5 phút
+                    fc => (target.interval_seconds as i64) * 2_i64.pow(((fc - 1) as u32).min(2)),
+                };
+                let next_due = Utc::now() + Duration::seconds(retry_delay_seconds);
                 let _ = self.target_repo.update_target_failure(target.id, next_due).await;
 
                 let _ = self.target_repo.record_crawl_run(NewCrawlRun {
@@ -83,11 +92,25 @@ impl CrawlTargetUseCase {
         let mut newest_watermark = target.watermark;
 
         for raw in raw_posts {
-            // Overlap Window: Nếu gặp liên tiếp 5 bài cũ không thay đổi -> Dừng lượt quét sớm để tiết kiệm tài nguyên
-            if consecutive_old_posts >= 5 {
-                info!("Encountered 5 consecutive unchanged posts. Stopping early due to overlap window.");
-                stop_reason = "STOP_5_OLD_POSTS";
+            // Overlap Window: Nếu gặp liên tiếp 3 bài cũ không thay đổi -> Dừng lượt quét sớm để tiết kiệm tài nguyên
+            if consecutive_old_posts >= 3 {
+                info!("Encountered 3 consecutive unchanged posts. Stopping early due to overlap window.");
+                stop_reason = "STOP_3_OLD_POSTS";
                 break;
+            }
+
+            // Nếu bài viết đã cũ hơn hoặc bằng watermark đã biết -> tăng biến đếm bài cũ
+            if let Some(watermark) = target.watermark {
+                if let Some(src_time) = raw.source_created_at {
+                    if src_time <= watermark {
+                        consecutive_old_posts += 1;
+                        if consecutive_old_posts >= 3 {
+                            info!("Reached watermark timestamp. Stopping early due to watermark check.");
+                            stop_reason = "STOP_WATERMARK";
+                            break;
+                        }
+                    }
+                }
             }
 
             let identity_key = Post::compute_identity_key(&target.platform, &target.group_id, &raw.post_id);
@@ -123,6 +146,10 @@ impl CrawlTargetUseCase {
                             post_id: post.id,
                             revision: post.revision,
                         }).await;
+                        // Kích hoạt pipeline phân loại ngay lập tức (Instant Pipeline Activation)
+                        if let Some(ref notify) = self.pipeline_notify {
+                            notify.notify_one();
+                        }
                     } else if is_updated {
                         consecutive_old_posts = 0;
                         info!("Post {} updated revision to {}, creating new CLASSIFY job", post.id, post.revision);
@@ -131,6 +158,9 @@ impl CrawlTargetUseCase {
                             post_id: post.id,
                             revision: post.revision,
                         }).await;
+                        if let Some(ref notify) = self.pipeline_notify {
+                            notify.notify_one();
+                        }
                     } else {
                         consecutive_old_posts += 1;
                         let _ = self.post_repo.touch_last_seen(post.id).await;
@@ -142,11 +172,27 @@ impl CrawlTargetUseCase {
             }
         }
 
-        // Tính Jitter ±5% cho next_due_at (đóng scope rng trước await để thỏa mãn Send)
+        // Tính Jitter ±5% và thích ứng ban đêm (Night Mode) cho next_due_at
         let interval_with_jitter = {
             let mut rng = rand::thread_rng();
             let jitter_percent: f64 = rng.gen_range(-0.05..0.05);
-            (target.interval_seconds as f64 * (1.0 + jitter_percent)).round() as i64
+            let base_interval = target.interval_seconds as f64;
+
+            // Giờ Việt Nam (UTC + 7)
+            let vn_hour = (Utc::now() + Duration::hours(7))
+                .format("%H")
+                .to_string()
+                .parse::<u32>()
+                .unwrap_or(12);
+
+            // Khung giờ đêm (22:30 -> 06:00): Tự động giãn chu kỳ gấp 2.5 lần để tiết kiệm CPU và bảo vệ Cookie
+            let multiplier = if vn_hour >= 23 || vn_hour < 6 {
+                2.5
+            } else {
+                1.0
+            };
+
+            (base_interval * multiplier * (1.0 + jitter_percent)).round() as i64
         };
         let next_due = Utc::now() + Duration::seconds(interval_with_jitter);
 

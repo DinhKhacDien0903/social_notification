@@ -125,13 +125,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.to_kien_token.clone(),
     ));
 
-    // 6. Khởi tạo Use Cases
+    // 6. Khởi tạo Notification signals cho Fast-Path Stream
+    let pipeline_notify = Arc::new(tokio::sync::Notify::new());
+    let outbox_notify = Arc::new(tokio::sync::Notify::new());
+
+    // Khởi tạo Use Cases
     let crawl_use_case = Arc::new(CrawlTargetUseCase::new(
         fb_engine.clone(),
         target_repo.clone(),
         post_repo.clone(),
         job_repo.clone(),
         config.max_posts_per_crawl,
+        Some(pipeline_notify.clone()),
     ));
 
     let worker_uuid = Uuid::new_v4().to_string();
@@ -143,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         outbox_repo.clone(),
         classifier_service.clone(),
         format!("worker-classifier-{}", worker_uuid),
+        Some(outbox_notify.clone()),
     ));
 
     let dispatch_use_case = Arc::new(DispatchOutboxUseCase::new(
@@ -166,13 +172,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pipeline_classify_uc = classify_use_case.clone();
+    let pipeline_sub_notify = pipeline_notify.clone();
     tokio::spawn(async move {
-        run_pipeline_worker(pipeline_classify_uc).await;
+        run_pipeline_worker(pipeline_classify_uc, Some(pipeline_sub_notify)).await;
     });
 
     let outbox_dispatch_uc = dispatch_use_case.clone();
+    let outbox_sub_notify = outbox_notify.clone();
     tokio::spawn(async move {
-        run_outbox_worker(outbox_dispatch_uc).await;
+        run_outbox_worker(outbox_dispatch_uc, Some(outbox_sub_notify)).await;
     });
 
     info!("All 3 background workers spawned successfully (Scheduler, Classifier Pipeline, Outbox Dispatcher)");
