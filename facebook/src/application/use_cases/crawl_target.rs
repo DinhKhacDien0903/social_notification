@@ -17,6 +17,7 @@ pub struct CrawlTargetUseCase {
     target_repo: Arc<dyn TargetRepository>,
     post_repo: Arc<dyn PostRepository>,
     job_repo: Arc<dyn JobRepository>,
+    max_posts: usize,
 }
 
 impl CrawlTargetUseCase {
@@ -25,12 +26,14 @@ impl CrawlTargetUseCase {
         target_repo: Arc<dyn TargetRepository>,
         post_repo: Arc<dyn PostRepository>,
         job_repo: Arc<dyn JobRepository>,
+        max_posts: usize,
     ) -> Self {
         Self {
             engine,
             target_repo,
             post_repo,
             job_repo,
+            max_posts,
         }
     }
 
@@ -47,7 +50,7 @@ impl CrawlTargetUseCase {
         let run_id = Uuid::new_v4().to_string();
         info!("Starting crawl run {} for target group '{}' ({})", run_id, target.display_name, target.group_id);
 
-        let posts_result = self.engine.fetch_group_posts(&target.group_id, 10).await;
+        let posts_result = self.engine.fetch_group_posts(&target.group_id, self.max_posts).await;
 
         let raw_posts = match posts_result {
             Ok(p) => p,

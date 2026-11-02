@@ -131,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         target_repo.clone(),
         post_repo.clone(),
         job_repo.clone(),
+        config.max_posts_per_crawl,
     ));
 
     let worker_uuid = Uuid::new_v4().to_string();

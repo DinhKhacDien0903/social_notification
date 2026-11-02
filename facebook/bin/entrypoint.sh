@@ -8,7 +8,6 @@ echo "Starting Headless Chrome on CDP port 9222 with performance flags..."
 /opt/google/chrome/chrome \
     --headless=new \
     --no-sandbox \
-    --disable-dev-shm-usage \
     --disable-gpu \
     --disable-software-rasterizer \
     --disable-webgl \
@@ -16,6 +15,12 @@ echo "Starting Headless Chrome on CDP port 9222 with performance flags..."
     --disable-accelerated-2d-canvas \
     --disable-gpu-rasterization \
     --blink-settings=imagesEnabled=false \
+    --disk-cache-dir=/dev/shm/chrome-cache \
+    --disk-cache-size=10485760 \
+    --media-cache-size=1 \
+    --disable-component-update \
+    --disable-domain-reliability \
+    --disable-features=OptimizationGuideModelDownloading,OptimizationHints,MediaRouter,Translate,WebUIOmniboxPopup \
     --remote-debugging-port=9222 \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \

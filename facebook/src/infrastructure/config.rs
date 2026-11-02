@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub to_kien_webhook_url: String,
     pub to_kien_token: String,
     pub crawl_interval_seconds: i32,
+    pub max_posts_per_crawl: usize,
     pub fb_cdp: String,
 }
 
@@ -37,6 +38,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|i| i.parse().ok())
                 .unwrap_or(180),
+            max_posts_per_crawl: env::var("MAX_POSTS_PER_CRAWL")
+                .ok()
+                .and_then(|i| i.parse().ok())
+                .unwrap_or(5),
             fb_cdp: env::var("FB_CDP").unwrap_or_else(|_| "9222".to_string()),
         }
     }
