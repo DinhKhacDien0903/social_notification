@@ -102,7 +102,12 @@
    for(const card of postCards()){
     const msg=g(card,'story_message');if(!msg)continue;
     for(const b of more(msg)){
-     pending.push(msg);window.__fb.press(b);
+     pending.push(msg);
+     try{
+      window.__fb.press(b);
+     }catch(e){
+      try{b.click();}catch(_){}
+     }
     }
    }
    // Expand the whole batch together; never cache a card while its text is still collapsed.

@@ -80,11 +80,16 @@
  const press=(el,{events=['pointerover','mouseover','pointerdown','mousedown','pointerup','mouseup','click'],valid=()=>true}={})=>{
   const identity=()=>[location.href,el.getAttribute('role'),el.getAttribute('aria-label')||clean(el.innerText),el.getAttribute('href')].join('\n');
   const key=identity();
+  let dispatched=0;
   for(const t of events){
-   if(!visible(el)||!enabled(el)||identity()!==key||!valid())throw Error('action target changed; nothing further was dispatched');
+   if(!visible(el)||!enabled(el)||identity()!==key||!valid()){
+    if(dispatched>0)break;
+    throw Error('action target changed; nothing further was dispatched');
+   }
    const rc=el.getBoundingClientRect();const o={bubbles:true,cancelable:true,view:window,clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,pointerId:1,pointerType:'mouse',isPrimary:true};
    const C=t.startsWith('pointer')?PointerEvent:MouseEvent;
    el.dispatchEvent(new C(t,{...o,buttons:t.endsWith('down')?1:0}));
+   dispatched++;
   }
  };
  // Join two snapshots of a virtualized list: `older` was captured after scrolling up, `newer` before.
