@@ -168,12 +168,26 @@ impl FacebookEngine for FacebookCliEngine {
         group_id: &str,
         max_posts: usize,
     ) -> Result<Vec<RawPostDto>, Box<dyn std::error::Error + Send + Sync>> {
-        let formatted_target = if group_id.starts_with("/groups/") {
-            group_id.to_string()
-        } else if group_id.chars().all(|c| c.is_ascii_digit()) {
-            format!("/groups/{}", group_id)
+        let clean_id = group_id.trim();
+        let base_path = if clean_id.starts_with("http://") || clean_id.starts_with("https://") {
+            clean_id.to_string()
+        } else if clean_id.starts_with("/groups/") {
+            clean_id.to_string()
+        } else if clean_id.starts_with("groups/") {
+            format!("/{}", clean_id)
         } else {
-            format!("/groups/{}", group_id)
+            format!("/groups/{}", clean_id.trim_matches('/'))
+        };
+
+        // Bổ sung query sorting_setting=CHRONOLOGICAL để ép Facebook sắp xếp bài viết mới nhất theo thời gian thực (tránh bị kẹt ở "Phù hợp nhất")
+        let formatted_target = if base_path.contains("/groups/") && !base_path.contains("sorting_setting=") {
+            if base_path.contains('?') {
+                format!("{}&sorting_setting=CHRONOLOGICAL", base_path)
+            } else {
+                format!("{}/?sorting_setting=CHRONOLOGICAL", base_path.trim_end_matches('/'))
+            }
+        } else {
+            base_path
         };
 
         info!("Executing facebook-cli for group: {} (max: {})", formatted_target, max_posts);
