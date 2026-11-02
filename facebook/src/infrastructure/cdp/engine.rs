@@ -11,6 +11,7 @@ pub struct FacebookCliEngine {
     profile_dir: String,
     fb_cdp: String,
     url_regex: Regex,
+    crawl_count: std::sync::atomic::AtomicUsize,
 }
 
 impl FacebookCliEngine {
@@ -21,6 +22,7 @@ impl FacebookCliEngine {
             profile_dir,
             fb_cdp,
             url_regex,
+            crawl_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -178,6 +180,26 @@ impl FacebookCliEngine {
         }
         None
     }
+
+    /// Tái khởi động Chrome định kỳ để giải phóng 100% RAM tích tụ và ngắt các tiến trình rò rỉ
+    pub async fn trigger_chrome_recycle() {
+        let recycle_script = "/app/bin/recycle_chrome.sh";
+        if std::path::Path::new(recycle_script).exists() {
+            info!("Triggering scheduled Chrome process recycle via {}", recycle_script);
+            let res = Command::new(recycle_script).output().await;
+            match res {
+                Ok(out) if out.status.success() => {
+                    info!("Chrome process recycled successfully. RAM reset to baseline.");
+                }
+                Ok(out) => {
+                    warn!("Chrome recycle finished with status {}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+                }
+                Err(e) => {
+                    warn!("Failed to execute Chrome recycle script: {}", e);
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -240,6 +262,12 @@ impl FacebookEngine for FacebookCliEngine {
             .env("FB_CDP", &cdp_target)
             .output()
             .await;
+
+        let current_count = self.crawl_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if current_count % 12 == 0 {
+            info!("Crawl counter reached {} runs. Triggering Chrome auto-recycle to clean up RAM...", current_count);
+            Self::trigger_chrome_recycle().await;
+        }
 
         let output = match output_res {
             Ok(out) => out,

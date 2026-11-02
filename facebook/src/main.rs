@@ -12,7 +12,7 @@ mod presentation;
 
 use application::classifier::{ClassifierService, GeminiClassifier, RuleClassifier};
 use application::use_cases::{ClassifyJobsUseCase, CrawlTargetUseCase, DispatchOutboxUseCase, ManageSessionUseCase};
-use domain::{NewWatchTarget, SessionRepository, SocialSession, TargetRepository};
+use domain::{NewWatchTarget, SessionRepository, SocialSession, TargetRepository, WatchTarget};
 use infrastructure::{AnthillClient, AppConfig, FacebookCliEngine, SqliteDatabase};
 use presentation::{create_router, run_outbox_worker, run_pipeline_worker, run_scheduler_worker, AppState};
 
@@ -100,9 +100,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Reset failure_count và kích hoạt quét ngay cho các nhóm đang BẬT khi hệ thống khởi động lại
     // Tuyệt đối không can thiệp vào các nhóm người dùng đã tắt hoặc các nhóm do người dùng thêm
-    sqlx::query("UPDATE social_watch_targets SET next_due_at = CURRENT_TIMESTAMP, failure_count = 0 WHERE enabled = 1")
-        .execute(pool_ref)
-        .await?;
+        let enabled_targets: Vec<WatchTarget> = sqlx::query_as(
+        "SELECT * FROM social_watch_targets WHERE enabled = 1 ORDER BY id ASC"
+    )
+    .fetch_all(pool_ref)
+    .await?;
+
+    let startup_now = chrono::Utc::now();
+    const STARTUP_INITIAL_DELAY_SECS: i64 = 15;
+    const STARTUP_SLOT_GAP_SECS: i64 = 90;
+
+    for (i, target) in enabled_targets.iter().enumerate() {
+        let staggered_due = startup_now + chrono::Duration::seconds(STARTUP_INITIAL_DELAY_SECS + (i as i64 * STARTUP_SLOT_GAP_SECS));
+        let _ = sqlx::query("UPDATE social_watch_targets SET next_due_at = ?, failure_count = 0 WHERE id = ?")
+            .bind(staggered_due)
+            .bind(target.id)
+            .execute(pool_ref)
+            .await;
+        info!(
+            "Startup staggering scheduled for target '{}' (group: {}): next due at {} (+{}s)",
+            target.display_name,
+            target.group_id,
+            staggered_due.to_rfc3339(),
+            STARTUP_INITIAL_DELAY_SECS + (i as i64 * STARTUP_SLOT_GAP_SECS)
+        );
+    }
 
     // Dọn dẹp target mẫu cũ (vietnam.trekking.community) nếu còn sót lại từ các bản build trước
     sqlx::query("DELETE FROM social_watch_targets WHERE group_id = 'vietnam.trekking.community'")

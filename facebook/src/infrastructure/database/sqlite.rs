@@ -170,7 +170,7 @@ impl TargetRepository for SqliteDatabase {
         let rows = sqlx::query_scalar::<_, DateTime<Utc>>(
             r#"
             SELECT next_due_at FROM social_watch_targets 
-            WHERE enabled = 1 AND id != ? AND datetime(next_due_at) > datetime('now')
+            WHERE enabled = 1 AND id != ? AND datetime(next_due_at) >= datetime('now', '-300 seconds')
             ORDER BY datetime(next_due_at) ASC
             "#,
         )

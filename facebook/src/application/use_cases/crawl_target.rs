@@ -19,6 +19,7 @@ pub struct CrawlTargetUseCase {
     job_repo: Arc<dyn JobRepository>,
     max_posts: usize,
     pipeline_notify: Option<Arc<tokio::sync::Notify>>,
+    crawl_lock: tokio::sync::Mutex<()>,
 }
 
 impl CrawlTargetUseCase {
@@ -37,6 +38,7 @@ impl CrawlTargetUseCase {
             job_repo,
             max_posts,
             pipeline_notify,
+            crawl_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -54,7 +56,7 @@ impl CrawlTargetUseCase {
             let mut rng = rand::thread_rng();
             rng.gen_range(-0.06..0.06)
         };
-        let base = base_interval_seconds.max(60) as f64;
+        let base = base_interval_seconds.max(180) as f64;
 
         // Giờ Việt Nam (UTC + 7)
         let vn_hour = (Utc::now() + Duration::hours(7))
@@ -71,7 +73,7 @@ impl CrawlTargetUseCase {
         };
 
         let interval_secs = (base * multiplier * (1.0 + jitter_percent)).round() as i64;
-        let mut candidate = Utc::now() + Duration::seconds(interval_secs);
+        let mut candidate = Utc::now() + Duration::seconds(interval_secs.max(MIN_GAP_SECONDS));
 
         const MIN_GAP_SECONDS: i64 = 90;
 
@@ -81,7 +83,7 @@ impl CrawlTargetUseCase {
 
             let mut collision = true;
             let mut attempts = 0;
-            while collision && attempts < 20 {
+            while collision && attempts < 30 {
                 collision = false;
                 attempts += 1;
                 for t in &sorted_times {
@@ -109,6 +111,7 @@ impl CrawlTargetUseCase {
     }
 
     pub async fn execute(&self, target: &WatchTarget) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _crawl_guard = self.crawl_lock.lock().await;
         let run_id = Uuid::new_v4().to_string();
         info!("Starting crawl run {} for target group '{}' ({})", run_id, target.display_name, target.group_id);
 
@@ -160,9 +163,9 @@ impl CrawlTargetUseCase {
 
         for raw in raw_posts {
             // Overlap Window: Nếu gặp liên tiếp 3 bài cũ không thay đổi -> Dừng lượt quét sớm để tiết kiệm tài nguyên
-            if consecutive_old_posts >= 3 {
-                info!("Encountered 3 consecutive unchanged posts. Stopping early due to overlap window.");
-                stop_reason = "STOP_3_OLD_POSTS";
+            if consecutive_old_posts >= 2 {
+                info!("Encountered 2 consecutive unchanged posts. Stopping early due to overlap window.");
+                stop_reason = "STOP_2_OLD_POSTS";
                 break;
             }
 
@@ -171,7 +174,7 @@ impl CrawlTargetUseCase {
                 if let Some(src_time) = raw.source_created_at {
                     if src_time <= watermark {
                         consecutive_old_posts += 1;
-                        if consecutive_old_posts >= 3 {
+                        if consecutive_old_posts >= 2 {
                             info!("Reached watermark timestamp. Stopping early due to watermark check.");
                             stop_reason = "STOP_WATERMARK";
                             break;
