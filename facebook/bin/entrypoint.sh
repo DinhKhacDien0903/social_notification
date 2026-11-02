@@ -24,7 +24,7 @@ echo "Starting Headless Chrome on CDP port 9222 with performance flags..."
     --remote-debugging-port=9222 \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \
-    --renderer-process-limit=1 \
+    --renderer-process-limit=2 \
     --disable-background-networking \
     --disable-sync \
     --disable-default-apps \
@@ -52,6 +52,10 @@ if [ -n "$WS_URL" ]; then
     export FB_CDP="$WS_URL"
     echo "Resolved Chrome CDP WebSocket URL: $FB_CDP"
 fi
+
+# Cấu hình timeout mặc định 300s (5 phút) cho các tác vụ facebook-cli
+export FB_TIMEOUT="${FB_TIMEOUT:-300}"
+echo "Configured FB_TIMEOUT=$FB_TIMEOUT seconds."
 
 if [ -f /app/runtime/profile/primary_cookies.json ]; then
     echo "Restoring cookies from /app/runtime/profile/primary_cookies.json..."

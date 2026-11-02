@@ -6,13 +6,13 @@ services:
     container_name: social-listener-rust
     restart: unless-stopped
     init: true
-    cpus: 0.8
-    mem_limit: 1024M
+    cpus: 1.5
+    mem_limit: 1536M
     deploy:
       resources:
         limits:
-          cpus: '0.80'
-          memory: 1024M
+          cpus: '1.50'
+          memory: 1536M
     ports:
       - "8000:8000"
     environment:
@@ -24,6 +24,7 @@ services:
       - CRAWL_INTERVAL_SECONDS=180
       - MAX_POSTS_PER_CRAWL=5
       - FB_CDP=9222
+      - FB_TIMEOUT=300
       - GEMINI_API_KEY=${GEMINI_API_KEY:-disabled}
       - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://host.docker.internal:8080/api/v1/webhooks/social-leads}
       - TO_KIEN_TOKEN=${TO_KIEN_TOKEN:-secret_token}

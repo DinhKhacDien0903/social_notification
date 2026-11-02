@@ -208,6 +208,8 @@ impl FacebookEngine for FacebookCliEngine {
         // Phân giải WebSocket URL chính xác từ Chrome CDP
         let cdp_target = Self::resolve_cdp_target(&self.fb_cdp).await;
 
+        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "300".to_string());
+
         let mut cmd = Command::new(&self.fb_bin_path);
         cmd.arg("posts")
             .arg(&formatted_target)
@@ -216,6 +218,7 @@ impl FacebookEngine for FacebookCliEngine {
             .arg("--urls")
             .env("FB_PROFILE", &self.profile_dir)
             .env("FB_CDP", &cdp_target)
+            .env("FB_TIMEOUT", &fb_timeout)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -223,6 +226,13 @@ impl FacebookEngine for FacebookCliEngine {
 
         // Luôn cleanup tab Chrome để giải phóng CPU và RAM dù lệnh có lỗi hay timeout
         Self::cleanup_cdp_tabs(&cdp_target).await;
+
+        // Reset fb daemon để tránh kẹt trạng thái tab hoặc socket zombie cho các lượt crawl sau
+        let _ = Command::new(&self.fb_bin_path)
+            .arg("stop")
+            .env("FB_PROFILE", &self.profile_dir)
+            .output()
+            .await;
 
         let output = match output_res {
             Ok(out) => out,
