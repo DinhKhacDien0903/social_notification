@@ -55,14 +55,16 @@ RUN chmod +x /app/bin/* /app/social-listener
 COPY migrations /app/migrations
 COPY js /app/js
 
-# Create runtime profile directory
-RUN mkdir -p /app/runtime/profile
+# Create data and runtime profile directories
+RUN mkdir -p /app/data /app/runtime/profile
+
+VOLUME ["/app/data", "/app/runtime/profile"]
 
 EXPOSE 8000
 
 ENV PORT=8000 \
     HOST=0.0.0.0 \
-    DATABASE_URL=sqlite:///app/social_listener.db?mode=rwc \
+    DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc \
     FB_BIN_PATH=/app/bin/fb \
     CHROME_PROFILE_DIR=/app/runtime/profile \
     FB_CDP=9222

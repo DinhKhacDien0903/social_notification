@@ -73,13 +73,60 @@ pub async fn create_target(
     State(state): State<AppState>,
     Json(payload): Json<CreateTargetRequest>,
 ) -> impl IntoResponse {
+    let raw_group_id = payload.group_id.trim();
+    if raw_group_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Group ID không được để trống" })));
+    }
+
+    let clean_group_id = if let Some(stripped) = raw_group_id.strip_prefix("https://www.facebook.com/groups/") {
+        stripped.trim_matches('/')
+    } else if let Some(stripped) = raw_group_id.strip_prefix("http://www.facebook.com/groups/") {
+        stripped.trim_matches('/')
+    } else if let Some(stripped) = raw_group_id.strip_prefix("https://facebook.com/groups/") {
+        stripped.trim_matches('/')
+    } else if let Some(stripped) = raw_group_id.strip_prefix("http://facebook.com/groups/") {
+        stripped.trim_matches('/')
+    } else if let Some(stripped) = raw_group_id.strip_prefix("/groups/") {
+        stripped.trim_matches('/')
+    } else {
+        raw_group_id.trim_matches('/')
+    };
+
+    let platform = payload.platform.unwrap_or_else(|| "facebook".to_string());
+
+    // Kiểm tra xem nhóm đã tồn tại chưa để tránh tạo trùng lặp
+    let pool_ref = state.db.pool();
+    let existing: Result<Option<crate::domain::WatchTarget>, sqlx::Error> = sqlx::query_as(
+        "SELECT * FROM social_watch_targets WHERE platform = ? AND group_id = ?"
+    )
+    .bind(&platform)
+    .bind(clean_group_id)
+    .fetch_optional(pool_ref)
+    .await;
+
+    if let Ok(Some(existing_target)) = existing {
+        // Nếu đã có: kích hoạt lại (enabled = 1), cập nhật tên hiển thị nếu có và trả về
+        let _ = sqlx::query(
+            "UPDATE social_watch_targets SET enabled = 1, display_name = ?, interval_seconds = ?, failure_count = 0, next_due_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        )
+        .bind(payload.display_name.trim())
+        .bind(payload.interval_seconds.unwrap_or(existing_target.interval_seconds))
+        .bind(existing_target.id)
+        .execute(pool_ref)
+        .await;
+
+        if let Ok(Some(updated)) = state.target_repo.get_target_by_id(existing_target.id).await {
+            return (StatusCode::OK, Json(serde_json::json!({ "target": updated })));
+        }
+    }
+
     let new_target = NewWatchTarget {
-        platform: payload.platform.unwrap_or_else(|| "facebook".to_string()),
-        group_id: payload.group_id,
-        display_name: payload.display_name,
+        platform,
+        group_id: clean_group_id.to_string(),
+        display_name: payload.display_name.trim().to_string(),
         session_id: payload.session_id.unwrap_or_else(|| "primary".to_string()),
         enabled: payload.enabled.unwrap_or(true),
-        interval_seconds: payload.interval_seconds.unwrap_or(300),
+        interval_seconds: payload.interval_seconds.unwrap_or(180),
         ordering: payload.ordering.unwrap_or_else(|| "chronological".to_string()),
     };
 

@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Seeded default primary session");
     }
 
-    // Seed duy nhất nhóm Facebook mục tiêu: https://www.facebook.com/groups/690021959247586/
+    // Seed duy nhất nhóm Facebook mặc định ban đầu nếu chưa có: https://www.facebook.com/groups/690021959247586/
     let pool_ref = db.pool();
     let target_69: Option<domain::WatchTarget> = sqlx::query_as(
         "SELECT * FROM social_watch_targets WHERE group_id = '690021959247586'"
@@ -95,17 +95,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ordering: "chronological".to_string(),
         };
         target_repo.create_target(default_target).await?;
-        info!("Seeded target: https://www.facebook.com/groups/690021959247586/");
+        info!("Seeded default target: https://www.facebook.com/groups/690021959247586/");
     }
 
-    // Cập nhật interval 180s (3 phút) và kích hoạt quét ngay cho nhóm 690021959247586
-    sqlx::query("UPDATE social_watch_targets SET interval_seconds = ?, next_due_at = CURRENT_TIMESTAMP, failure_count = 0, enabled = 1 WHERE group_id = '690021959247586'")
-        .bind(config.crawl_interval_seconds)
+    // Reset failure_count và kích hoạt quét ngay cho các nhóm đang BẬT khi hệ thống khởi động lại
+    // Tuyệt đối không can thiệp vào các nhóm người dùng đã tắt hoặc các nhóm do người dùng thêm
+    sqlx::query("UPDATE social_watch_targets SET next_due_at = CURRENT_TIMESTAMP, failure_count = 0 WHERE enabled = 1")
         .execute(pool_ref)
         .await?;
 
-    // Xóa các target mẫu khác (không dùng data seed nữa, chỉ giữ nhóm 690021959247586)
-    sqlx::query("DELETE FROM social_watch_targets WHERE group_id != '690021959247586'")
+    // Dọn dẹp target mẫu cũ (vietnam.trekking.community) nếu còn sót lại từ các bản build trước
+    sqlx::query("DELETE FROM social_watch_targets WHERE group_id = 'vietnam.trekking.community'")
         .execute(pool_ref)
         .await?;
 
