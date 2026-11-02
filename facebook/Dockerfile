@@ -49,7 +49,7 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /usr/local/bin/social-listener /app/social-listener
 COPY bin /app/bin
-RUN chmod +x /app/bin/* /app/social-listener
+RUN sed -i 's/\r$//' /app/bin/*.sh 2>/dev/null || true && chmod +x /app/bin/* /app/social-listener
 
 # Copy migrations and JS scripts
 COPY migrations /app/migrations
