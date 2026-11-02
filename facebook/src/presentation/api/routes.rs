@@ -6,9 +6,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use super::handlers::{
-    create_target, get_session_status, get_system_status, health_freshness, health_liveness,
-    health_readiness, import_session_cookies, list_leads, list_outbox, list_posts, list_runs,
-    list_targets, metrics, retry_outbox_event, toggle_target, AppState,
+    crawl_target_now, create_target, get_session_status, get_system_status, health_freshness,
+    health_liveness, health_readiness, import_session_cookies, list_leads, list_outbox,
+    list_posts, list_runs, list_targets, metrics, retry_outbox_event, toggle_target,
+    update_target, AppState,
 };
 
 pub fn create_router(state: AppState) -> Router {
@@ -20,7 +21,9 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Targets API
         .route("/api/targets", get(list_targets).post(create_target))
+        .route("/api/targets/:id", put(update_target))
         .route("/api/targets/:id/toggle", put(toggle_target))
+        .route("/api/targets/:id/crawl-now", post(crawl_target_now))
         // Session Cookie Sync & Status API
         .route("/api/session/status", get(get_session_status))
         .route("/api/session/import", post(import_session_cookies))

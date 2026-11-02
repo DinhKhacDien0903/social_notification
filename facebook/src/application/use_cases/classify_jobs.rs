@@ -79,10 +79,16 @@ impl ClassifyJobsUseCase {
                         Ok(lead) => {
                             info!("Saved Lead ID {} for Post {}", lead.id, post.id);
 
-                            // Tạo Transactional Outbox Event
+                            // Tạo Transactional Outbox Event (giới hạn độ dài key an toàn <= 100 ký tự)
+                            let safe_post_id = if post.post_id.len() > 32 {
+                                format!("h_{}", &post.content_hash[..16])
+                            } else {
+                                post.post_id.clone()
+                            };
+
                             let event_key = format!(
                                 "{}:{}:{}:lead:{}:team-sales",
-                                post.platform, post.group_id, post.post_id, lead.rule_version
+                                post.platform, post.group_id, safe_post_id, lead.rule_version
                             );
 
                             let payload = AnthillLeadPayload {

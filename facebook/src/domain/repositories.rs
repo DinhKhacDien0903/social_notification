@@ -18,6 +18,9 @@ pub trait TargetRepository: Send + Sync {
     async fn claim_due_targets(&self, lease_owner: &str, limit: i64) -> Result<Vec<WatchTarget>, sqlx::Error>;
     async fn update_target_success(&self, id: i64, watermark: Option<DateTime<Utc>>, next_due: DateTime<Utc>) -> Result<(), sqlx::Error>;
     async fn update_target_failure(&self, id: i64, next_due: DateTime<Utc>) -> Result<(), sqlx::Error>;
+    async fn update_target(&self, id: i64, interval_seconds: Option<i32>, next_due_at: Option<DateTime<Utc>>, display_name: Option<String>) -> Result<Option<WatchTarget>, sqlx::Error>;
+    async fn reschedule_now(&self, id: i64) -> Result<Option<WatchTarget>, sqlx::Error>;
+    async fn get_active_scheduled_times(&self, exclude_id: i64) -> Result<Vec<DateTime<Utc>>, sqlx::Error>;
     async fn record_crawl_run(&self, run: NewCrawlRun) -> Result<(), sqlx::Error>;
     async fn get_recent_crawl_runs(&self, limit: i64) -> Result<Vec<CrawlRun>, sqlx::Error>;
 }

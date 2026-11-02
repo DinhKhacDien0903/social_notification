@@ -26,15 +26,7 @@ impl AiGateway for GeminiClassifier {
         text: &str,
     ) -> Result<AiClassificationResult, Box<dyn std::error::Error + Send + Sync>> {
         if self.api_key.is_empty() || self.api_key == "disabled" {
-            return Ok(AiClassificationResult {
-                is_lead: false,
-                intent: "other".to_string(),
-                confidence: 0.5,
-                reason: "Gemini API key is disabled or not set".to_string(),
-                location: None,
-                requested_date: None,
-                summary: "Bỏ qua phân tích AI do chưa cấu hình GEMINI_API_KEY".to_string(),
-            });
+            return Err("Gemini API key is disabled or not set".into());
         }
 
         let prompt = format!(

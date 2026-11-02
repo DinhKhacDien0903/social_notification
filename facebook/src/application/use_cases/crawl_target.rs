@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
@@ -40,6 +40,65 @@ impl CrawlTargetUseCase {
         }
     }
 
+    /// Tính toán next_due_at thông minh chống dồn dập (Anti-Clustering & Staggering Engine):
+    /// 1. Base interval kèm jitter ±5-6%.
+    /// 2. Giãn cách Night Mode (23:00 -> 06:00 VN: x2.5).
+    /// 3. Collision Avoidance: Đảm bảo khoảng cách tối thiểu MIN_GAP_SECONDS (90 giây)
+    ///    với mọi nhóm đang bật khác, tránh tình trạng quét đồng thời dồn dập tại cùng 1 phút.
+    pub async fn calculate_staggered_next_due(
+        target_repo: &Arc<dyn TargetRepository>,
+        target_id: i64,
+        base_interval_seconds: i32,
+    ) -> DateTime<Utc> {
+        let jitter_percent: f64 = {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(-0.06..0.06)
+        };
+        let base = base_interval_seconds.max(60) as f64;
+
+        // Giờ Việt Nam (UTC + 7)
+        let vn_hour = (Utc::now() + Duration::hours(7))
+            .format("%H")
+            .to_string()
+            .parse::<u32>()
+            .unwrap_or(12);
+
+        // Khung giờ đêm (23:00 -> 06:00): Tự động giãn chu kỳ gấp 2.5 lần
+        let multiplier = if vn_hour >= 23 || vn_hour < 6 {
+            2.5
+        } else {
+            1.0
+        };
+
+        let interval_secs = (base * multiplier * (1.0 + jitter_percent)).round() as i64;
+        let mut candidate = Utc::now() + Duration::seconds(interval_secs);
+
+        const MIN_GAP_SECONDS: i64 = 90;
+
+        if let Ok(other_times) = target_repo.get_active_scheduled_times(target_id).await {
+            let mut sorted_times = other_times;
+            sorted_times.sort();
+
+            let mut collision = true;
+            let mut attempts = 0;
+            while collision && attempts < 20 {
+                collision = false;
+                attempts += 1;
+                for t in &sorted_times {
+                    let diff = (candidate.timestamp() - t.timestamp()).abs();
+                    if diff < MIN_GAP_SECONDS {
+                        // Tránh va chạm: dịch candidate ra sau mốc va chạm + MIN_GAP_SECONDS
+                        candidate = *t + Duration::seconds(MIN_GAP_SECONDS);
+                        collision = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        candidate
+    }
+
     /// Tính content_hash chuẩn hóa NFC bằng SHA-256
     pub fn compute_content_hash(text: &str) -> String {
         let nfc_text: String = text.nfc().collect();
@@ -66,7 +125,15 @@ impl CrawlTargetUseCase {
                     1 => 300, // Thử lại sau 5 phút
                     fc => (target.interval_seconds as i64) * 2_i64.pow(((fc - 1) as u32).min(2)),
                 };
-                let next_due = Utc::now() + Duration::seconds(retry_delay_seconds);
+                let mut next_due = Utc::now() + Duration::seconds(retry_delay_seconds);
+                // Đảm bảo retry không va chạm (< 60s) với lịch quét của các nhóm khác
+                if let Ok(other_times) = self.target_repo.get_active_scheduled_times(target.id).await {
+                    for t in other_times {
+                        if (next_due.timestamp() - t.timestamp()).abs() < 60 {
+                            next_due = t + Duration::seconds(90);
+                        }
+                    }
+                }
                 let _ = self.target_repo.update_target_failure(target.id, next_due).await;
 
                 let _ = self.target_repo.record_crawl_run(NewCrawlRun {
@@ -172,29 +239,8 @@ impl CrawlTargetUseCase {
             }
         }
 
-        // Tính Jitter ±5% và thích ứng ban đêm (Night Mode) cho next_due_at
-        let interval_with_jitter = {
-            let mut rng = rand::thread_rng();
-            let jitter_percent: f64 = rng.gen_range(-0.05..0.05);
-            let base_interval = target.interval_seconds as f64;
-
-            // Giờ Việt Nam (UTC + 7)
-            let vn_hour = (Utc::now() + Duration::hours(7))
-                .format("%H")
-                .to_string()
-                .parse::<u32>()
-                .unwrap_or(12);
-
-            // Khung giờ đêm (22:30 -> 06:00): Tự động giãn chu kỳ gấp 2.5 lần để tiết kiệm CPU và bảo vệ Cookie
-            let multiplier = if vn_hour >= 23 || vn_hour < 6 {
-                2.5
-            } else {
-                1.0
-            };
-
-            (base_interval * multiplier * (1.0 + jitter_percent)).round() as i64
-        };
-        let next_due = Utc::now() + Duration::seconds(interval_with_jitter);
+        // Tính toán next_due_at thông minh: tự động phân bổ lịch giãn cách, chống va chạm (Anti-Clustering)
+        let next_due = Self::calculate_staggered_next_due(&self.target_repo, target.id, target.interval_seconds).await;
 
         let _ = self.target_repo.update_target_success(target.id, newest_watermark, next_due).await;
 

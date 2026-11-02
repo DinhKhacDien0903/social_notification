@@ -5,6 +5,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::application::use_cases::ManageSessionUseCase;
@@ -43,6 +44,14 @@ pub struct CreateTargetRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct ToggleTargetRequest {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTargetRequest {
+    pub display_name: Option<String>,
+    pub interval_seconds: Option<i32>,
+    pub next_due_at: Option<DateTime<Utc>>,
     pub enabled: Option<bool>,
 }
 
@@ -105,12 +114,20 @@ pub async fn create_target(
     .await;
 
     if let Ok(Some(existing_target)) = existing {
-        // Nếu đã có: kích hoạt lại (enabled = 1), cập nhật tên hiển thị nếu có và trả về
+        // Nếu đã có: kích hoạt lại (enabled = 1), cập nhật tên hiển thị nếu có và tính next_due_at giãn cách
+        let interval = payload.interval_seconds.unwrap_or(existing_target.interval_seconds);
+        let next_due = crate::application::use_cases::CrawlTargetUseCase::calculate_staggered_next_due(
+            &state.target_repo,
+            existing_target.id,
+            interval,
+        ).await;
+
         let _ = sqlx::query(
-            "UPDATE social_watch_targets SET enabled = 1, display_name = ?, interval_seconds = ?, failure_count = 0, next_due_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE social_watch_targets SET enabled = 1, display_name = ?, interval_seconds = ?, failure_count = 0, next_due_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         )
         .bind(payload.display_name.trim())
-        .bind(payload.interval_seconds.unwrap_or(existing_target.interval_seconds))
+        .bind(interval)
+        .bind(next_due)
         .bind(existing_target.id)
         .execute(pool_ref)
         .await;
@@ -120,18 +137,87 @@ pub async fn create_target(
         }
     }
 
+    let interval = payload.interval_seconds.unwrap_or(180);
     let new_target = NewWatchTarget {
         platform,
         group_id: clean_group_id.to_string(),
         display_name: payload.display_name.trim().to_string(),
         session_id: payload.session_id.unwrap_or_else(|| "primary".to_string()),
         enabled: payload.enabled.unwrap_or(true),
-        interval_seconds: payload.interval_seconds.unwrap_or(180),
+        interval_seconds: interval,
         ordering: payload.ordering.unwrap_or_else(|| "chronological".to_string()),
     };
 
     match state.target_repo.create_target(new_target).await {
-        Ok(target) => (StatusCode::CREATED, Json(serde_json::json!({ "target": target }))),
+        Ok(target) => {
+            // Tự động phân bổ lịch giãn cách chống va chạm cho target mới
+            let staggered_due = crate::application::use_cases::CrawlTargetUseCase::calculate_staggered_next_due(
+                &state.target_repo,
+                target.id,
+                target.interval_seconds,
+            ).await;
+            let updated = state.target_repo.update_target(target.id, None, Some(staggered_due), None).await.ok().flatten().unwrap_or(target);
+            (StatusCode::CREATED, Json(serde_json::json!({ "target": updated })))
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn update_target(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateTargetRequest>,
+) -> impl IntoResponse {
+    let existing = match state.target_repo.get_target_by_id(id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Target not found" }))),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+    };
+
+    let interval = payload.interval_seconds.unwrap_or(existing.interval_seconds);
+    let display_name = payload.display_name.unwrap_or(existing.display_name);
+
+    // Nếu người dùng cung cấp next_due_at cụ thể thì dùng, ngược lại nếu có đổi interval thì tự động tính next_due_at giãn cách
+    let next_due = match payload.next_due_at {
+        Some(nd) => nd,
+        None => {
+            if payload.interval_seconds.is_some() {
+                crate::application::use_cases::CrawlTargetUseCase::calculate_staggered_next_due(
+                    &state.target_repo,
+                    id,
+                    interval,
+                ).await
+            } else {
+                existing.next_due_at
+            }
+        }
+    };
+
+    if let Some(enabled) = payload.enabled {
+        let _ = state.target_repo.toggle_target(id, enabled).await;
+    }
+
+    match state.target_repo.update_target(id, Some(interval), Some(next_due), Some(display_name)).await {
+        Ok(Some(target)) => (StatusCode::OK, Json(serde_json::json!({ "target": target }))),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Target not found" }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn crawl_target_now(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    match state.target_repo.reschedule_now(id).await {
+        Ok(Some(target)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Đã lên lịch quét ngay cho nhóm '{}'", target.display_name),
+                "target": target
+            })),
+        ),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Target not found" }))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }

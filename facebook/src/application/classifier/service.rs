@@ -24,7 +24,7 @@ impl ClassifierService {
     }
 
     pub async fn evaluate_post(&self, post_id: i64, text: &str) -> LeadClassificationOutput {
-        // Tầng 1: Rule Taxonomy
+        // Tầng 1: Intelligent Rule Taxonomy & Heuristic
         let rule_res = self.rule_classifier.classify(text);
 
         match rule_res {
@@ -33,8 +33,10 @@ impl ClassifierService {
                 confidence,
                 reason,
                 location,
+                requested_date,
+                summary,
             } => {
-                info!("Post {} classified POSITIVE by Rule Taxonomy", post_id);
+                info!("Post {} classified POSITIVE by Rule Taxonomy: {:?}", post_id, intent);
                 LeadClassificationOutput {
                     is_lead: true,
                     lead: Some(NewLead {
@@ -42,12 +44,12 @@ impl ClassifierService {
                         intent: intent.to_string(),
                         confidence,
                         reason,
-                        rule_version: "v3.0.0-rule".to_string(),
+                        rule_version: "v3.1.0-rule".to_string(),
                         model_version: None,
                         review_status: "APPROVED".to_string(),
                         location,
-                        requested_date: None,
-                        summary: format!("Lead phát hiện tự động bởi Rule: {:?}", intent),
+                        requested_date,
+                        summary,
                     }),
                 }
             }
@@ -58,7 +60,11 @@ impl ClassifierService {
                     lead: None,
                 }
             }
-            RuleResult::Uncertain { location, reason } => {
+            RuleResult::Uncertain {
+                location,
+                requested_date,
+                reason,
+            } => {
                 info!("Post {} UNCERTAIN by Rule ({}), delegating to AI Gateway...", post_id, reason);
 
                 match self.ai_gateway.classify_post(text).await {
@@ -71,11 +77,11 @@ impl ClassifierService {
                                     intent: ai_res.intent,
                                     confidence: ai_res.confidence,
                                     reason: format!("AI: {}", ai_res.reason),
-                                    rule_version: "v3.0.0-rule".to_string(),
+                                    rule_version: "v3.1.0-rule".to_string(),
                                     model_version: Some("gemini-1.5-flash".to_string()),
                                     review_status: "APPROVED".to_string(),
                                     location: ai_res.location.or(location),
-                                    requested_date: ai_res.requested_date,
+                                    requested_date: ai_res.requested_date.or(requested_date),
                                     summary: ai_res.summary,
                                 }),
                             }
@@ -87,22 +93,36 @@ impl ClassifierService {
                         }
                     }
                     Err(err) => {
-                        warn!("AI Gateway failed for post {}: {}. Fallback to manual review.", post_id, err);
-                        // Fallback an toàn: nếu có địa danh thì đẩy vào PENDING để review thủ công
-                        LeadClassificationOutput {
-                            is_lead: true,
-                            lead: Some(NewLead {
-                                post_id,
-                                intent: "other".to_string(),
-                                confidence: 0.60,
-                                reason: format!("Fallback do AI Gateway lỗi: {}", err),
-                                rule_version: "v3.0.0-rule".to_string(),
-                                model_version: None,
-                                review_status: "PENDING".to_string(),
-                                location,
-                                requested_date: None,
-                                summary: "Cần duyệt thủ công do AI Gateway gặp sự cố".to_string(),
-                            }),
+                        warn!("AI Gateway failed for post {}: {}. Evaluating fallback.", post_id, err);
+                        // Fallback an toàn: nếu có địa danh leo núi thì đẩy vào PENDING để review thủ công, không làm rơi rớt khách
+                        if location.is_some() {
+                            let text_snippet = text
+                                .replace(['\r', '\n'], " ")
+                                .trim()
+                                .chars()
+                                .take(140)
+                                .collect::<String>();
+
+                            LeadClassificationOutput {
+                                is_lead: true,
+                                lead: Some(NewLead {
+                                    post_id,
+                                    intent: "other".to_string(),
+                                    confidence: 0.65,
+                                    reason: format!("Fallback tự động do AI Gateway chưa kích hoạt: {}", err),
+                                    rule_version: "v3.1.0-rule".to_string(),
+                                    model_version: None,
+                                    review_status: "PENDING".to_string(),
+                                    location,
+                                    requested_date,
+                                    summary: text_snippet,
+                                }),
+                            }
+                        } else {
+                            LeadClassificationOutput {
+                                is_lead: false,
+                                lead: None,
+                            }
                         }
                     }
                 }

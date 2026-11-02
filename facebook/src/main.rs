@@ -109,6 +109,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(pool_ref)
         .await?;
 
+    // Tự động khôi phục các outbox event bị rơi vào DEAD_LETTER do cấu hình webhook lỗi trước đây
+    sqlx::query("UPDATE social_outbox SET status = 'PENDING', attempts = 0, available_at = CURRENT_TIMESTAMP WHERE status = 'DEAD_LETTER'")
+        .execute(pool_ref)
+        .await?;
+
+    // Kích hoạt lại tiến trình phân loại cho các bài viết chưa có lead theo bộ luật thông minh v3.1.0
+    sqlx::query("UPDATE social_jobs SET status = 'PENDING', attempts = 0, available_at = CURRENT_TIMESTAMP WHERE kind = 'CLASSIFY' AND post_id NOT IN (SELECT post_id FROM social_leads)")
+        .execute(pool_ref)
+        .await?;
+
     // 5. Khởi tạo Adapters ngoại vi
     let fb_engine = Arc::new(FacebookCliEngine::new(
         config.fb_bin_path.clone(),

@@ -119,6 +119,67 @@ impl TargetRepository for SqliteDatabase {
         Ok(())
     }
 
+    async fn update_target(
+        &self,
+        id: i64,
+        interval_seconds: Option<i32>,
+        next_due_at: Option<DateTime<Utc>>,
+        display_name: Option<String>,
+    ) -> Result<Option<WatchTarget>, sqlx::Error> {
+        if let Some(target) = self.get_target_by_id(id).await? {
+            let new_interval = interval_seconds.unwrap_or(target.interval_seconds);
+            let new_next_due = next_due_at.unwrap_or(target.next_due_at);
+            let new_display = display_name.unwrap_or(target.display_name);
+
+            sqlx::query(
+                r#"
+                UPDATE social_watch_targets 
+                SET interval_seconds = ?, next_due_at = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                "#,
+            )
+            .bind(new_interval)
+            .bind(new_next_due)
+            .bind(new_display)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+            self.get_target_by_id(id).await
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn reschedule_now(&self, id: i64) -> Result<Option<WatchTarget>, sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE social_watch_targets 
+            SET next_due_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_target_by_id(id).await
+    }
+
+    async fn get_active_scheduled_times(&self, exclude_id: i64) -> Result<Vec<DateTime<Utc>>, sqlx::Error> {
+        let rows = sqlx::query_scalar::<_, DateTime<Utc>>(
+            r#"
+            SELECT next_due_at FROM social_watch_targets 
+            WHERE enabled = 1 AND id != ? AND datetime(next_due_at) > datetime('now')
+            ORDER BY datetime(next_due_at) ASC
+            "#,
+        )
+        .bind(exclude_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn record_crawl_run(&self, run: NewCrawlRun) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
