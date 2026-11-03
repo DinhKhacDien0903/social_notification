@@ -10,7 +10,7 @@ mod application;
 mod infrastructure;
 mod presentation;
 
-use application::classifier::{ClassifierService, GeminiClassifier, RuleClassifier};
+use application::classifier::{ClassifierService, HybridAiGateway, RuleClassifier};
 use application::use_cases::{ClassifyJobsUseCase, CrawlTargetUseCase, DispatchOutboxUseCase, ManageSessionUseCase};
 use domain::{NewWatchTarget, SessionRepository, SocialSession, TargetRepository, WatchTarget};
 use infrastructure::{AnthillClient, AppConfig, FacebookCliEngine, SqliteDatabase};
@@ -148,9 +148,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.fb_cdp.clone(),
     ));
 
-    let gemini_ai = Arc::new(GeminiClassifier::new(config.gemini_api_key.clone()));
+    let ai_gateway = Arc::new(HybridAiGateway::new(
+        config.groq_api_key.clone(),
+        vec![
+            config.groq_primary_model.clone(),
+            config.groq_fallback_model.clone(),
+            config.groq_qwen_model.clone(),
+        ],
+        config.gemini_api_key.clone(),
+        config.gemini_model.clone(),
+    ));
     let rule_classifier = Arc::new(RuleClassifier::new());
-    let classifier_service = Arc::new(ClassifierService::new(rule_classifier, gemini_ai));
+    let classifier_service = Arc::new(ClassifierService::new(rule_classifier, ai_gateway));
 
     let anthill_notifier = Arc::new(AnthillClient::new(
         config.to_kien_webhook_url.clone(),

@@ -34,6 +34,8 @@ pub struct AiClassificationResult {
     pub location: Option<String>,
     pub requested_date: Option<String>,
     pub summary: String,
+    #[serde(default)]
+    pub model_version: Option<String>,
 }
 
 #[async_trait]

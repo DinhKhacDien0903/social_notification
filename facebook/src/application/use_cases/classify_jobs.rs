@@ -79,43 +79,64 @@ impl ClassifyJobsUseCase {
                         Ok(lead) => {
                             info!("Saved Lead ID {} for Post {}", lead.id, post.id);
 
-                            // Tạo Transactional Outbox Event (giới hạn độ dài key an toàn <= 100 ký tự)
-                            let safe_post_id = if post.post_id.len() > 32 {
-                                format!("h_{}", &post.content_hash[..16])
-                            } else {
-                                post.post_id.clone()
+                            // CHỈ ĐẨY VÀO TRANSACTIONAL OUTBOX NẾU LEAD ĐỦ TIÊU CHUẨN THÔNG BÁO CHO SALES:
+                            // 1. Phải được duyệt (APPROVED), không gửi thông báo cho PENDING hoặc REJECTED.
+                            // 2. Độ tin cậy tối thiểu 0.80.
+                            // 3. Phải mang ý định thương mại rõ ràng (looking_for_tour, hiring_guide, hiring_porter, hoặc route_advice/finding_companions có độ tin cậy cao >= 0.85), tuyệt đối không gửi intent "other".
+                            let is_commercial_intent = match lead.intent.as_str() {
+                                "looking_for_tour" | "hiring_guide" | "hiring_porter" => true,
+                                "finding_companions" | "route_advice" => lead.confidence >= 0.85,
+                                _ => false,
                             };
 
-                            let event_key = format!(
-                                "{}:{}:{}:lead:{}:team-sales",
-                                post.platform, post.group_id, safe_post_id, lead.rule_version
-                            );
+                            let should_dispatch_outbox = lead.review_status == "APPROVED"
+                                && lead.confidence >= 0.80
+                                && is_commercial_intent;
 
-                            let payload = AnthillLeadPayload {
-                                event_key: event_key.clone(),
-                                platform: post.platform.clone(),
-                                group_id: post.group_id.clone(),
-                                post_id: post.post_id.clone(),
-                                author: post.author_display.clone(),
-                                canonical_url: post.canonical_url.clone(),
-                                content: post.text.clone(),
-                                intent: lead.intent.clone(),
-                                confidence: lead.confidence,
-                                location: lead.location.clone(),
-                                requested_date: lead.requested_date.clone(),
-                                summary: lead.summary.clone(),
-                                created_at: chrono::Utc::now().to_rfc3339(),
-                            };
+                            if should_dispatch_outbox {
+                                // Tạo Transactional Outbox Event (giới hạn độ dài key an toàn <= 100 ký tự)
+                                let safe_post_id = if post.post_id.len() > 32 {
+                                    format!("h_{}", &post.content_hash[..16])
+                                } else {
+                                    post.post_id.clone()
+                                };
 
-                            if let Ok(json_str) = serde_json::to_string(&payload) {
-                                let _ = self.outbox_repo.insert_event(NewOutboxEvent {
-                                    event_key,
-                                    payload: json_str,
-                                }).await;
-                                // Đánh thức worker bắn Webhook ngay lập tức (Instant Webhook Dispatch)
-                                if let Some(ref notify) = self.outbox_notify {
-                                    notify.notify_one();
+                                let event_key = format!(
+                                    "{}:{}:{}:lead:{}:team-sales",
+                                    post.platform, post.group_id, safe_post_id, lead.rule_version
+                                );
+
+                                let payload = AnthillLeadPayload {
+                                    event_key: event_key.clone(),
+                                    platform: post.platform.clone(),
+                                    group_id: post.group_id.clone(),
+                                    post_id: post.post_id.clone(),
+                                    author: post.author_display.clone(),
+                                    canonical_url: post.canonical_url.clone(),
+                                    content: post.text.clone(),
+                                    intent: lead.intent.clone(),
+                                    confidence: lead.confidence,
+                                    location: lead.location.clone(),
+                                    requested_date: lead.requested_date.clone(),
+                                    summary: lead.summary.clone(),
+                                    created_at: chrono::Utc::now().to_rfc3339(),
+                                };
+
+                                if let Ok(json_str) = serde_json::to_string(&payload) {
+                                    let _ = self.outbox_repo.insert_event(NewOutboxEvent {
+                                        event_key,
+                                        payload: json_str,
+                                    }).await;
+                                    // Đánh thức worker bắn Webhook ngay lập tức (Instant Webhook Dispatch)
+                                    if let Some(ref notify) = self.outbox_notify {
+                                        notify.notify_one();
+                                    }
                                 }
+                            } else {
+                                info!(
+                                    "Lead ID {} (intent: {}, conf: {:.2}, status: {}) saved for dashboard review, skipped Outbox push notification.",
+                                    lead.id, lead.intent, lead.confidence, lead.review_status
+                                );
                             }
                         }
                         Err(e) => {

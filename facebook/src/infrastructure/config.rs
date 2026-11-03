@@ -7,7 +7,12 @@ pub struct AppConfig {
     pub server_host: String,
     pub fb_bin_path: String,
     pub chrome_profile_dir: String,
+    pub groq_api_key: String,
+    pub groq_primary_model: String,
+    pub groq_fallback_model: String,
+    pub groq_qwen_model: String,
     pub gemini_api_key: String,
+    pub gemini_model: String,
     pub to_kien_webhook_url: String,
     pub to_kien_token: String,
     pub crawl_interval_seconds: i32,
@@ -30,7 +35,16 @@ impl AppConfig {
             fb_bin_path: env::var("FB_BIN_PATH").unwrap_or_else(|_| "./bin/fb".to_string()),
             chrome_profile_dir: env::var("CHROME_PROFILE_DIR")
                 .unwrap_or_else(|_| "./runtime/profile".to_string()),
+            groq_api_key: env::var("GROQ_API_KEY").unwrap_or_else(|_| "disabled".to_string()),
+            groq_primary_model: env::var("GROQ_PRIMARY_MODEL")
+                .unwrap_or_else(|_| "openai/gpt-oss-120b".to_string()),
+            groq_fallback_model: env::var("GROQ_FALLBACK_MODEL")
+                .unwrap_or_else(|_| "openai/gpt-oss-20b".to_string()),
+            groq_qwen_model: env::var("GROQ_QWEN_MODEL")
+                .unwrap_or_else(|_| "qwen/qwen3.6-27b".to_string()),
             gemini_api_key: env::var("GEMINI_API_KEY").unwrap_or_else(|_| "disabled".to_string()),
+            gemini_model: env::var("GEMINI_MODEL")
+                .unwrap_or_else(|_| "gemini-1.5-flash".to_string()),
             to_kien_webhook_url: env::var("TO_KIEN_WEBHOOK_URL")
                 .unwrap_or_else(|_| "http://localhost:8080/api/v1/webhooks/social-leads".to_string()),
             to_kien_token: env::var("TO_KIEN_TOKEN").unwrap_or_else(|_| "secret_token".to_string()),

@@ -78,7 +78,7 @@ impl ClassifierService {
                                     confidence: ai_res.confidence,
                                     reason: format!("AI: {}", ai_res.reason),
                                     rule_version: "v3.1.0-rule".to_string(),
-                                    model_version: Some("gemini-1.5-flash".to_string()),
+                                    model_version: ai_res.model_version.clone().or_else(|| Some("ai-gateway".to_string())),
                                     review_status: "APPROVED".to_string(),
                                     location: ai_res.location.or(location),
                                     requested_date: ai_res.requested_date.or(requested_date),
