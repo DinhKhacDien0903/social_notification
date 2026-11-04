@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 import urllib.request
 import websockets
 
@@ -36,6 +37,7 @@ async def main():
         print("No cookies found to inject.")
         return
 
+    now = time.time()
     formatted_cookies = []
     for c in cookie_list:
         name = c.get("name")
@@ -43,37 +45,52 @@ async def main():
         if not name or value is None:
             continue
         domain = c.get("domain") or ".facebook.com"
+        if not domain.startswith(".") and not domain.startswith("http"):
+            domain = "." + domain
         path = c.get("path") or "/"
         secure = bool(c.get("secure", True))
         http_only = bool(c.get("httpOnly", c.get("http_only", name in ("xs", "datr", "fr", "sb"))))
-        
+
+        # Ensure cookies are persistent across Chrome restarts instead of temporary session cookies
+        expires_raw = c.get("expires") or c.get("expirationDate")
+        try:
+            expires = float(expires_raw) if expires_raw and float(expires_raw) > now else now + (365 * 86400)
+        except (ValueError, TypeError):
+            expires = now + (365 * 86400)
+
+        same_site = c.get("sameSite") or ("None" if secure else "Lax")
+        if same_site not in ("Strict", "Lax", "None"):
+            same_site = "Lax"
+
         formatted_cookies.append({
             "name": name,
             "value": str(value),
             "domain": domain,
             "path": path,
             "secure": secure,
-            "httpOnly": http_only
+            "httpOnly": http_only,
+            "expires": expires,
+            "sameSite": same_site
         })
 
     cdp_port = os.getenv("FB_CDP", "9222").strip()
-    # If FB_CDP is ws url or port
-    if cdp_port.startswith("ws://"):
+    if cdp_port.startswith("ws://") or cdp_port.startswith("wss://"):
         ws_url = cdp_port
     else:
+        port = cdp_port.lstrip(":")
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=5) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as resp:
                 info = json.loads(resp.read().decode())
                 ws_url = info.get("webSocketDebuggerUrl")
         except Exception as e:
-            print(f"Failed to query Chrome on port {cdp_port}: {e}")
+            print(f"Failed to query Chrome on port {port}: {e}")
             return
 
     if not ws_url:
         print("Could not find webSocketDebuggerUrl")
         return
 
-    print(f"Injecting {len(formatted_cookies)} cookies into Chrome via CDP ({ws_url})...")
+    print(f"Injecting {len(formatted_cookies)} persistent cookies into Chrome via CDP ({ws_url})...")
     async with websockets.connect(ws_url) as ws:
         req = {
             "id": 1,
