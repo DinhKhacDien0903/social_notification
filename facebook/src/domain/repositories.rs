@@ -23,6 +23,7 @@ pub trait TargetRepository: Send + Sync {
     async fn get_active_scheduled_times(&self, exclude_id: i64) -> Result<Vec<DateTime<Utc>>, sqlx::Error>;
     async fn record_crawl_run(&self, run: NewCrawlRun) -> Result<(), sqlx::Error>;
     async fn get_recent_crawl_runs(&self, limit: i64) -> Result<Vec<CrawlRun>, sqlx::Error>;
+    async fn reset_all_target_failures(&self) -> Result<(), sqlx::Error>;
 }
 
 #[async_trait]
@@ -65,4 +66,7 @@ pub trait SessionRepository: Send + Sync {
     async fn get_session(&self, id: &str) -> Result<Option<SocialSession>, sqlx::Error>;
     async fn upsert_session(&self, session: &SocialSession) -> Result<(), sqlx::Error>;
     async fn update_status(&self, id: &str, status: &str, incident_key: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn increment_auth_failure(&self, id: &str) -> Result<i32, sqlx::Error>;
+    async fn reset_auth_failure(&self, id: &str) -> Result<(), sqlx::Error>;
+    async fn is_session_ready(&self, id: &str) -> Result<bool, sqlx::Error>;
 }

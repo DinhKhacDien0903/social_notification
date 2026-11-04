@@ -260,6 +260,12 @@ pub async fn get_session_status(State(state): State<AppState>) -> impl IntoRespo
                 "version": s.session_version,
                 "last_verified_at": s.last_verified_at,
                 "lastVerifiedAt": s.last_verified_at,
+                "auth_failure_count": s.auth_failure_count,
+                "authFailureCount": s.auth_failure_count,
+                "is_ready": s.is_ready(),
+                "isReady": s.is_ready(),
+                "incident_key": s.incident_key,
+                "incidentKey": s.incident_key,
                 "message": format!("Session is {}", s.status)
             })),
         ),
@@ -321,16 +327,36 @@ pub async fn import_session_cookies(
         );
     }
 
-    // Find c_user
+    // Xác thực nghiêm ngặt: Phải có cả c_user (User ID dạng số) và xs (Session token)
     let mut user_id = String::new();
+    let mut has_xs = false;
     for c in &cookies_array {
         if let Some(name) = c.get("name").and_then(|n| n.as_str()) {
             if name == "c_user" {
                 if let Some(val) = c.get("value").and_then(|v| v.as_str()) {
-                    user_id = val.to_string();
+                    let trimmed = val.trim();
+                    if !trimmed.is_empty() && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+                        user_id = trimmed.to_string();
+                    }
+                }
+            } else if name == "xs" {
+                if let Some(val) = c.get("value").and_then(|v| v.as_str()) {
+                    if !val.trim().is_empty() {
+                        has_xs = true;
+                    }
                 }
             }
         }
+    }
+
+    if user_id.is_empty() || !has_xs {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Cookie không hợp lệ: Bắt buộc phải có cookie 'c_user' (User ID dạng số) và 'xs' (Session Secret) của Facebook."
+            })),
+        );
     }
 
     let cookies_count = cookies_array.len();
@@ -355,7 +381,7 @@ pub async fn import_session_cookies(
                 "user_id": user_id,
                 "cookiesCount": cookies_count,
                 "cookies_count": cookies_count,
-                "message": "Nạp session cookies thành công"
+                "message": "Nạp session cookies thành công. Phiên đã kích hoạt lại, tiến trình crawl được tiếp tục."
             })),
         ),
         Err(e) => (
@@ -383,7 +409,12 @@ pub async fn get_system_status(State(state): State<AppState>) -> impl IntoRespon
             "status": s.status,
             "account_alias": s.account_alias,
             "version": s.session_version,
-            "last_verified_at": s.last_verified_at
+            "last_verified_at": s.last_verified_at,
+            "auth_failure_count": s.auth_failure_count,
+            "authFailureCount": s.auth_failure_count,
+            "is_ready": s.is_ready(),
+            "isReady": s.is_ready(),
+            "incident_key": s.incident_key
         })],
         None => vec![],
     };

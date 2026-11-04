@@ -6,10 +6,10 @@ use tracing::{error, info, warn};
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
-use crate::application::interfaces::FacebookEngine;
+use crate::application::interfaces::{AnthillLeadPayload, FacebookEngine};
 use crate::domain::{
-    JobRepository, NewCrawlRun, NewJob, NewPost, Post, PostRepository, TargetRepository,
-    WatchTarget,
+    JobRepository, NewCrawlRun, NewJob, NewOutboxEvent, NewPost, OutboxRepository, Post,
+    PostRepository, SessionRepository, TargetRepository, WatchTarget,
 };
 
 pub struct CrawlTargetUseCase {
@@ -17,6 +17,8 @@ pub struct CrawlTargetUseCase {
     target_repo: Arc<dyn TargetRepository>,
     post_repo: Arc<dyn PostRepository>,
     job_repo: Arc<dyn JobRepository>,
+    session_repo: Arc<dyn SessionRepository>,
+    outbox_repo: Arc<dyn OutboxRepository>,
     max_posts: usize,
     pipeline_notify: Option<Arc<tokio::sync::Notify>>,
     crawl_lock: tokio::sync::Mutex<()>,
@@ -28,6 +30,8 @@ impl CrawlTargetUseCase {
         target_repo: Arc<dyn TargetRepository>,
         post_repo: Arc<dyn PostRepository>,
         job_repo: Arc<dyn JobRepository>,
+        session_repo: Arc<dyn SessionRepository>,
+        outbox_repo: Arc<dyn OutboxRepository>,
         max_posts: usize,
         pipeline_notify: Option<Arc<tokio::sync::Notify>>,
     ) -> Self {
@@ -36,10 +40,31 @@ impl CrawlTargetUseCase {
             target_repo,
             post_repo,
             job_repo,
+            session_repo,
+            outbox_repo,
             max_posts,
             pipeline_notify,
             crawl_lock: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// Kiểm tra xem thông điệp lỗi có phải là lỗi xác thực / login / cookie / session hay không.
+    pub fn is_auth_error(err_str: &str) -> bool {
+        let lower = err_str.to_lowercase();
+        lower.contains("not logged in")
+            || lower.contains("login_required")
+            || lower.contains("checkpoint")
+            || lower.contains("fb login")
+            || lower.contains("login.php")
+            || lower.contains("/login")
+            || lower.contains("session expired")
+            || lower.contains("invalid session")
+            || lower.contains("session not initialized")
+            || (lower.contains("cookie") && (lower.contains("missing") || lower.contains("invalid") || lower.contains("expired") || lower.contains("error")))
+            || lower.contains("c_user")
+            || lower.contains("unauthorized")
+            || lower.contains("401 unauthorized")
+            || lower.contains("403 forbidden")
     }
 
     /// Tính toán next_due_at thông minh chống dồn dập (Anti-Clustering & Staggering Engine):
@@ -112,15 +137,93 @@ impl CrawlTargetUseCase {
 
     pub async fn execute(&self, target: &WatchTarget) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let _crawl_guard = self.crawl_lock.lock().await;
+
+        // 1. Kiểm tra trạng thái phiên trước khi crawl: CHỈ CRAWL KHI PHIÊN CÒN HOẠT ĐỘNG
+        let is_ready = self.session_repo.is_session_ready(&target.session_id).await.unwrap_or(false);
+        if !is_ready {
+            warn!(
+                "Skipping crawl for target group '{}' ({}) because session '{}' is not READY. Crawling is suspended.",
+                target.display_name, target.group_id, target.session_id
+            );
+            return Err("Session is not active or ready. Crawling is suspended.".into());
+        }
+
         let run_id = Uuid::new_v4().to_string();
         info!("Starting crawl run {} for target group '{}' ({})", run_id, target.display_name, target.group_id);
 
         let posts_result = self.engine.fetch_group_posts(&target.group_id, self.max_posts).await;
 
         let raw_posts = match posts_result {
-            Ok(p) => p,
+            Ok(p) => {
+                // Khi crawl thành công, reset bộ đếm lỗi auth toàn cục của session về 0
+                let _ = self.session_repo.reset_auth_failure(&target.session_id).await;
+                p
+            }
             Err(e) => {
-                error!("Failed to fetch posts for group {}: {}", target.group_id, e);
+                let err_msg = e.to_string();
+                error!("Failed to fetch posts for group {}: {}", target.group_id, err_msg);
+
+                // Kiểm tra lỗi có liên quan tới Auth / Login / Session / Cookie hay không
+                if Self::is_auth_error(&err_msg) {
+                    let auth_fail_count = self.session_repo.increment_auth_failure(&target.session_id).await.unwrap_or(2);
+                    warn!(
+                        "Auth issue detected on group '{}' ({}) for session '{}'. Global auth failure count: {}/2",
+                        target.display_name, target.group_id, target.session_id, auth_fail_count
+                    );
+
+                    // NGUYÊN TẮC: Khi gặp lỗi liên quan tới auth => chỉ cần crawl tới lần 2 bất kể cùng hoặc khác group
+                    // => push notification về admin và ngừng crawl!
+                    if auth_fail_count >= 2 {
+                        error!(
+                            "CIRCUIT BREAKER TRIGGERED: Session '{}' reached 2 consecutive auth failures across groups. Halting all crawl runs and alerting Admin!",
+                            target.session_id
+                        );
+
+                        // 1. Cập nhật trạng thái session sang LOGIN_REQUIRED hoặc CHECKPOINT_REQUIRED
+                        let status_val = if err_msg.to_lowercase().contains("checkpoint") {
+                            "CHECKPOINT_REQUIRED"
+                        } else {
+                            "LOGIN_REQUIRED"
+                        };
+                        let _ = self.session_repo.update_status(
+                            &target.session_id,
+                            status_val,
+                            Some("AUTH_FAILURE_LIMIT_REACHED"),
+                        ).await;
+
+                        // 2. Bắn thông báo đẩy (Push Notification) về Admin qua Outbox
+                        let alert_payload = AnthillLeadPayload {
+                            event_key: format!("session_auth_failure_{}_{}", target.session_id, Utc::now().timestamp()),
+                            event_type: Some("social_session_expired".to_string()),
+                            title: Some("⚠️ Cảnh báo: Phiên Facebook đã hết hạn!".to_string()),
+                            body: Some(format!(
+                                "Phát hiện lỗi xác thực Facebook (2 lần lỗi liên tiếp). Hệ thống đã tự động dừng crawl để bảo vệ nick. Vui lòng nạp lại session cookies trên trang Admin."
+                            )),
+                            target_url: Some("/admin".to_string()),
+                            platform: target.platform.clone(),
+                            group_id: target.group_id.clone(),
+                            post_id: "session_alert".to_string(),
+                            author: "System Monitor".to_string(),
+                            canonical_url: format!("https://www.facebook.com/groups/{}/", target.group_id),
+                            content: format!("Lỗi xác thực Facebook: {}", err_msg),
+                            intent: "session_alert".to_string(),
+                            confidence: 1.0,
+                            location: None,
+                            requested_date: None,
+                            summary: "Phiên đăng nhập đã hết hạn hoặc cookie không hợp lệ sau 2 lần thử lại liên tiếp.".to_string(),
+                            created_at: Utc::now().to_rfc3339(),
+                        };
+
+                        if let Ok(payload_json) = serde_json::to_string(&alert_payload) {
+                            let _ = self.outbox_repo.insert_event(NewOutboxEvent {
+                                event_key: alert_payload.event_key.clone(),
+                                payload: payload_json,
+                            }).await;
+                            info!("Successfully created Outbox alert event for Admin push notification");
+                        }
+                    }
+                }
+
                 // Quick Retry cho lần lỗi đầu tiên (120s), lần hai (300s),
                 // và Exponential Backoff từ lần 3 trở đi để bảo vệ tài khoản khỏi checkpoint
                 let retry_delay_seconds = match target.failure_count {
@@ -147,7 +250,7 @@ impl CrawlTargetUseCase {
                     new_count: 0,
                     stop_reason: Some("FETCH_FAILED".to_string()),
                     coverage: "none".to_string(),
-                    error_code: Some(e.to_string()),
+                    error_code: Some(err_msg),
                     parser_version: "social-listener-rust-v3.0.0".to_string(),
                 }).await;
 

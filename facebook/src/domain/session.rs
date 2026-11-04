@@ -42,6 +42,16 @@ pub struct SocialSession {
     pub lease_until: Option<DateTime<Utc>>,
     pub last_verified_at: Option<DateTime<Utc>>,
     pub incident_key: Option<String>,
+    #[sqlx(default)]
+    pub auth_failure_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl SocialSession {
+    /// Kiểm tra phiên đăng nhập có đang hoạt động hợp lệ hay không:
+    /// Status phải là READY và số lần lỗi auth liên tiếp phải dưới ngưỡng dừng (< 2).
+    pub fn is_ready(&self) -> bool {
+        self.status == "READY" && self.auth_failure_count < 2
+    }
 }

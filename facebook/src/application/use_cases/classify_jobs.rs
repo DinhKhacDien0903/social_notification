@@ -108,6 +108,10 @@ impl ClassifyJobsUseCase {
 
                                 let payload = AnthillLeadPayload {
                                     event_key: event_key.clone(),
+                                    event_type: None,
+                                    title: None,
+                                    body: None,
+                                    target_url: None,
                                     platform: post.platform.clone(),
                                     group_id: post.group_id.clone(),
                                     post_id: post.post_id.clone(),

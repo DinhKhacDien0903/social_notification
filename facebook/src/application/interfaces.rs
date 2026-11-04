@@ -49,6 +49,14 @@ pub trait AiGateway: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthillLeadPayload {
     pub event_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_url: Option<String>,
     pub platform: String,
     pub group_id: String,
     pub post_id: String,

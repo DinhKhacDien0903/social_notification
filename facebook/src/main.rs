@@ -47,6 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Chạy migrations schema 8 bảng
     const MIGRATION_SQL: &str = include_str!("../migrations/20261030000001_initial_schema.sql");
     sqlx::raw_sql(MIGRATION_SQL).execute(&pool).await?;
+    // Đảm bảo cột auth_failure_count tồn tại trong social_sessions (tương thích ngược cho DB hiện có)
+    let _ = sqlx::query("ALTER TABLE social_sessions ADD COLUMN auth_failure_count INT NOT NULL DEFAULT 0")
+        .execute(&pool)
+        .await;
     info!("Database migrations applied successfully.");
 
     let db = SqliteDatabase::new(pool);
@@ -69,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lease_until: None,
             last_verified_at: Some(chrono::Utc::now()),
             incident_key: None,
+            auth_failure_count: 0,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -176,6 +181,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         target_repo.clone(),
         post_repo.clone(),
         job_repo.clone(),
+        session_repo.clone(),
+        outbox_repo.clone(),
         config.max_posts_per_crawl,
         Some(pipeline_notify.clone()),
     ));
@@ -200,16 +207,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let session_use_case = Arc::new(ManageSessionUseCase::new(
         session_repo.clone(),
+        target_repo.clone(),
         config.chrome_profile_dir.clone(),
         config.fb_cdp.clone(),
     ));
 
     // 7. Kích hoạt 3 background workers (Tokio tasks)
     let scheduler_target_repo = target_repo.clone();
+    let scheduler_session_repo = session_repo.clone();
     let scheduler_crawl_uc = crawl_use_case.clone();
     let scheduler_worker_id = format!("worker-scheduler-{}", worker_uuid);
     tokio::spawn(async move {
-        run_scheduler_worker(scheduler_target_repo, scheduler_crawl_uc, scheduler_worker_id).await;
+        run_scheduler_worker(
+            scheduler_target_repo,
+            scheduler_session_repo,
+            scheduler_crawl_uc,
+            scheduler_worker_id,
+        ).await;
     });
 
     let pipeline_classify_uc = classify_use_case.clone();

@@ -207,6 +207,21 @@ impl TargetRepository for SqliteDatabase {
             .fetch_all(&self.pool)
             .await
     }
+
+    async fn reset_all_target_failures(&self) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE social_watch_targets 
+            SET failure_count = 0,
+                next_due_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE enabled = 1
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -536,7 +551,7 @@ impl OutboxRepository for SqliteDatabase {
 #[async_trait]
 impl SessionRepository for SqliteDatabase {
     async fn get_session(&self, id: &str) -> Result<Option<SocialSession>, sqlx::Error> {
-        sqlx::query_as::<_, SocialSession>("SELECT * FROM social_sessions WHERE id = ?")
+        sqlx::query_as::<_, SocialSession>("SELECT id, account_alias, platform, status, session_version, lease_owner, lease_until, last_verified_at, incident_key, COALESCE(auth_failure_count, 0) as auth_failure_count, created_at, updated_at FROM social_sessions WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await
@@ -545,14 +560,15 @@ impl SessionRepository for SqliteDatabase {
     async fn upsert_session(&self, session: &SocialSession) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO social_sessions (id, account_alias, platform, status, session_version, last_verified_at, incident_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO social_sessions (id, account_alias, platform, status, session_version, last_verified_at, incident_key, auth_failure_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 account_alias = excluded.account_alias,
                 status = excluded.status,
                 session_version = excluded.session_version,
                 last_verified_at = excluded.last_verified_at,
                 incident_key = excluded.incident_key,
+                auth_failure_count = excluded.auth_failure_count,
                 updated_at = CURRENT_TIMESTAMP
             "#,
         )
@@ -563,6 +579,7 @@ impl SessionRepository for SqliteDatabase {
         .bind(session.session_version)
         .bind(session.last_verified_at)
         .bind(&session.incident_key)
+        .bind(session.auth_failure_count)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -576,5 +593,34 @@ impl SessionRepository for SqliteDatabase {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn increment_auth_failure(&self, id: &str) -> Result<i32, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE social_sessions SET auth_failure_count = COALESCE(auth_failure_count, 0) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+
+        let count: (i32,) = sqlx::query_as("SELECT COALESCE(auth_failure_count, 0) FROM social_sessions WHERE id = ?")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(count.0)
+    }
+
+    async fn reset_auth_failure(&self, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE social_sessions SET auth_failure_count = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn is_session_ready(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let session = self.get_session(id).await?;
+        Ok(session.map_or(false, |s| s.is_ready()))
     }
 }

@@ -3,7 +3,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::domain::{SessionRepository, SocialSession};
+use crate::domain::{SessionRepository, SocialSession, TargetRepository};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CookieItem {
@@ -15,14 +15,21 @@ pub struct CookieItem {
 
 pub struct ManageSessionUseCase {
     session_repo: Arc<dyn SessionRepository>,
+    target_repo: Arc<dyn TargetRepository>,
     profile_dir: String,
     fb_cdp: String,
 }
 
 impl ManageSessionUseCase {
-    pub fn new(session_repo: Arc<dyn SessionRepository>, profile_dir: String, fb_cdp: String) -> Self {
+    pub fn new(
+        session_repo: Arc<dyn SessionRepository>,
+        target_repo: Arc<dyn TargetRepository>,
+        profile_dir: String,
+        fb_cdp: String,
+    ) -> Self {
         Self {
             session_repo,
+            target_repo,
             profile_dir,
             fb_cdp,
         }
@@ -36,6 +43,15 @@ impl ManageSessionUseCase {
         // Parse cookie JSON để đảm bảo tính hợp lệ
         let cookies: Vec<CookieItem> = serde_json::from_str(cookies_json)?;
         info!("Importing {} cookies for session '{}'", cookies.len(), session_id);
+
+        // KIỂM TRA ĐIỀU KIỆN SESSION HỢP LỆ:
+        // Cookie bắt buộc phải có c_user (chứa ID người dùng) và xs (secret session token).
+        let has_c_user = cookies.iter().any(|c| c.name == "c_user" && !c.value.trim().is_empty());
+        let has_xs = cookies.iter().any(|c| c.name == "xs" && !c.value.trim().is_empty());
+
+        if !has_c_user || !has_xs {
+            return Err("Cookie không hợp lệ: Bắt buộc phải có cookie 'c_user' và 'xs' từ Facebook.".into());
+        }
 
         // Lưu cookie vào file cache profile để CDP hoặc fb binary đọc
         let profile_path = std::path::Path::new(&self.profile_dir);
@@ -61,7 +77,7 @@ impl ManageSessionUseCase {
         // Đồng bộ cookie trực tiếp vào CSDL SQLite Cookies của Chrome
         let _ = Self::sync_cookies_to_chrome_db(&cookies).await;
 
-        // Cập nhật CSDL
+        // Cập nhật CSDL: Reset auth_failure_count về 0, chuyển status sang READY
         let now = Utc::now();
         let existing = self.session_repo.get_session(session_id).await?;
         let version = existing.as_ref().map_or(1, |s| s.session_version + 1);
@@ -76,12 +92,20 @@ impl ManageSessionUseCase {
             lease_until: None,
             last_verified_at: Some(now),
             incident_key: None,
+            auth_failure_count: 0,
             created_at: now,
             updated_at: now,
         };
 
         self.session_repo.upsert_session(&session).await?;
-        info!("Session '{}' updated to READY (v{})", session_id, version);
+        self.session_repo.reset_auth_failure(session_id).await?;
+
+        // Reset toàn bộ lỗi và lịch quét cho các nhóm đang bật để scheduler tiếp tục crawl ngay lập tức
+        let _ = self.target_repo.reset_all_target_failures().await;
+        info!(
+            "Session '{}' updated to READY (v{}), auth_failure_count reset to 0, targets rescheduled. Crawling resumed.",
+            session_id, version
+        );
 
         Ok(())
     }

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS social_sessions (
     lease_until TIMESTAMP NULL,
     last_verified_at TIMESTAMP NULL,
     incident_key VARCHAR(128) NULL,
+    auth_failure_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
