@@ -67,7 +67,7 @@
   }
   return cards;
  };
- const canon=h=>{try{const u=new URL(h,location.href);const KEEP=['fbid','story_fbid','id','v','set','idorvanity','q'];const mp=u.searchParams.get('multi_permalinks');if(mp&&/^\/groups\/\d+\/?$/.test(u.pathname))return u.pathname.replace(/\/?$/,'/posts/'+mp);for(const p of [...u.searchParams.keys()])if(!KEEP.includes(p))u.searchParams.delete(p);return u.pathname+u.search;}catch(e){return ''}};
+ const canon=h=>{try{const u=new URL(h,location.href);const KEEP=['fbid','story_fbid','id','v','set','idorvanity','q'];const mp=u.searchParams.get('multi_permalinks');if(mp&&/^\/groups\/\d+\/?$/.test(u.pathname))return u.pathname.replace(/\/?$/,'/posts/'+mp);const gm=u.searchParams.get('set')?.match(/gm\.(\d+)/)?.[1];const gid=u.searchParams.get('idorvanity')||u.pathname.match(/\/groups\/(\d+)/)?.[1];if(gm&&gid)return '/groups/'+gid+'/posts/'+gm+'/';for(const p of [...u.searchParams.keys()])if(!KEEP.includes(p))u.searchParams.delete(p);return u.pathname+u.search;}catch(e){return ''}};
  const groupPath=h=>{try{const u=new URL(h,location.href);const m=u.pathname.match(/^\/groups\/([^/]+)\/?$/);if(!m)return null;if(/^(feed|discover|joins|create|search)$/.test(m[1]))return null;return '/groups/'+m[1];}catch(e){return null}};
  /* a group's name is the first line of its first link; the other lines of all its links are details */
  const addGroup=(m,p,lines)=>{const cur=m.get(p);if(!cur){m.set(p,{name:lines[0],info:lines.slice(1)});return}for(const l of lines)if(l!==cur.name&&!cur.info.includes(l))cur.info.push(l)};

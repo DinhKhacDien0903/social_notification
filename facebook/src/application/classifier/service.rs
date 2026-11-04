@@ -104,12 +104,12 @@ impl ClassifierService {
                                 .collect::<String>();
 
                             LeadClassificationOutput {
-                                is_lead: true,
+                                is_lead: false,
                                 lead: Some(NewLead {
                                     post_id,
                                     intent: "other".to_string(),
                                     confidence: 0.65,
-                                    reason: format!("Fallback tự động do AI Gateway chưa kích hoạt: {}", err),
+                                    reason: format!("Chờ duyệt thủ công (AI Gateway chưa kích hoạt: {})", err),
                                     rule_version: "v3.1.0-rule".to_string(),
                                     model_version: None,
                                     review_status: "PENDING".to_string(),

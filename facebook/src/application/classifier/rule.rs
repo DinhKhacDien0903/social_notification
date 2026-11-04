@@ -24,6 +24,7 @@ pub enum RuleResult {
 }
 
 pub struct RuleClassifier {
+    welcome_and_system_patterns: Vec<Regex>,
     seller_patterns: Vec<Regex>,
     sharing_patterns: Vec<Regex>,
     high_intent_patterns: Vec<(Regex, LeadIntent)>,
@@ -31,7 +32,9 @@ pub struct RuleClassifier {
     date_patterns: Vec<Regex>,
     question_patterns: Vec<Regex>,
     heuristic_porter_pattern: Regex,
+    heuristic_porter_cue_pattern: Regex,
     heuristic_guide_pattern: Regex,
+    heuristic_guide_cue_pattern: Regex,
     heuristic_tour_pattern: Regex,
     heuristic_tour_cue_pattern: Regex,
     heuristic_companion_pattern: Regex,
@@ -46,6 +49,25 @@ impl Default for RuleClassifier {
 
 impl RuleClassifier {
     pub fn new() -> Self {
+        let welcome_and_system_regexes = vec![
+            // ── Chào mừng thành viên mới Facebook group / Tag hàng loạt ──
+            r"chao\s+mung\s+(?:cac\s+)?thanh\s+vien\s+moi\b",
+            r"chao\s+don\s+(?:cac\s+)?thanh\s+vien\s+moi\b",
+            r"welcome\s+(?:to\s+)?(?:our\s+)?new\s+members?\b",
+            r"hay\s+chao\s+mung\s+(?:cac\s+)?thanh\s+vien\s+moi\b",
+            r"thanh\s+vien\s+moi\s+gia\s+nhap\b",
+            // ── Nội quy nhóm / Thông báo BQT / Quy định đăng bài ──
+            r"noi\s+quy\s+(?:nhom|group)\b",
+            r"quy\s+dinh\s+(?:nhom|group|dang\s+bai)\b",
+            r"thong\s+bao\s+(?:tu\s+)?(?:ban\s+quang\s+tri|bqt|admin)\b",
+            r"dieu\s+khoan\s+(?:nhom|group)\b",
+        ];
+
+        let welcome_and_system_patterns = welcome_and_system_regexes
+            .into_iter()
+            .map(|p| Regex::new(&format!(r"(?i){}", p)).unwrap())
+            .collect();
+
         let seller_regexes = vec![
             // ── 1. Người bán tour / Tour operator / Tour leader quảng cáo ──
             r"mo\s+ban\s+tour\b",
@@ -89,10 +111,43 @@ impl RuleClassifier {
             r"\b(?:ngay|day)\s*[1-5]\s*:",
             r"\bn[1-5]\s*:",
             r"lien\s+he\s+(?:hotline|zalo|sdt|phone)\b",
-            r"\bhotline\s*:",
-            r"\bzalo\s*:",
-            r"\bsdt\s*:",
+            r"\bhotline(?:\s+[\w\s]{1,15})?\s*:",
+            r"\bzalo(?:\s+[\w\s]{1,15})?\s*:",
+            r"\b(?:sdt|so\s+dien\s+thoai)(?:\s+[\w\s]{1,15})?\s*:",
+            r"(?:lien\s+he|contact|booking|hotline|zalo|call)\s*[:=]?\s*\d{8,11}\b",
             r"\bcall/zalo\b",
+            r"\bwebsite\s*:",
+            r"\bfanpage\s*:",
+            r"\bemail\s*:",
+            r"dia\s+chi\s*:",
+
+            // ── Thương hiệu / Agency bán tour / Quảng cáo dịch vụ ──
+            r"nha\s+[\w\s]{1,15}\s+(?:nhe|luon|co|bao|lo)\b",
+            r"#dicunggio\b",
+            r"#trekkingtour\b",
+            r"#tourtrekking\b",
+            r"#tourdulich\b",
+            r"#dulichtrainghiem\b",
+            r"\bphotographer\b",
+            r"tay\s+nghe\s+(?:chup|quay)\b",
+            r"chup\s+choet\b",
+            r"bao\s+chung\s+(?:cho|tay)\b",
+            r"cung\s+phay\b",
+            r"anh\s+song\s+ao\b",
+            r"(?:anh\s+chi\s+em|qui\s+khach|quy\s+khach|moi\s+nguoi|ca\s+nha)\s+yen\s+tam\b",
+            r"kham\s+pha\s+thien\s+nhien\b",
+            r"chinh\s+phuc\s+moi\s+gioi\s+han\b",
+            r"ben\s+(?:minh|em)\s+(?:co|nhan|to\s+chuc|cung\s+cap|chuyen)\b",
+            r"(?:khach|khach\s+hang)\s*:\s*.*(?:va\s+day\s+la\s+cau\s+tra\s+loi|tra\s+loi\s+khach|feedback\b)",
+            r"tro\s+ve\s+tu\s+[\w\s]{1,25},\s*(?:photographer|anh|team|leader|guide)",
+            r"mo\s+cung\b",
+            r"nhan\s+(?:tour|doan|khach)\b",
+            r"to\s+chuc\s+tour\b",
+            r"dich\s+vu\s+tron\s+goi\b",
+            r"dich\s+vu\s+chuyen\s+nghiep\b",
+            r"leader\s+(?:kinh\s+nghiem|nhiet\s+tinh)\b",
+            r"chuyen\s+cung\s+cap\b",
+            r"xe\s+(?:limousine|dua\s+don)\b",
 
             // ── 2. Dịch vụ xe du lịch / Cho thuê xe ──
             r"xe\s+du\s+lich\b",
@@ -262,18 +317,22 @@ impl RuleClassifier {
 
         let question_patterns = vec![
             Regex::new(r"\?").unwrap(),
-            Regex::new(r"(?i)\b(?:ko|khong|k|khum|hong)\b\??").unwrap(),
-            Regex::new(r"(?i)\b(?:hoi|xin|tu\s+van|muon|mun|co\s+ai|ai\s+co|ai\s+biet|bac\s+nao|co\s+doan\s+nao)\b").unwrap(),
+            Regex::new(r"(?i)\b(?:k\?|ko\?|khong\?|khum\?|hong\?)\b").unwrap(),
+            Regex::new(r"(?i)\b(?:co\s+(?:ko|khong|k|khum|hong)|duoc\s+(?:ko|khong|k|khum|hong)|the\s+nao|sao\s+khong|nhu\s+the\s+nao)\b").unwrap(),
+            Regex::new(r"(?i)\b(?:cho\s+(?:em|minh)\s+hoi|cho\s+hoi|muon\s+hoi|xin\s+kinh\s+nghiem|tu\s+van\s+giup|co\s+ai\s+biet|ai\s+biet|bac\s+nao\s+biet)\b").unwrap(),
         ];
 
         let heuristic_porter_pattern = Regex::new(r"(?i)\b(?:porter|poster|poter|lan\s+nghi|thue\s+lan|dat\s+lan)\b").unwrap();
+        let heuristic_porter_cue_pattern = Regex::new(r"(?i)\b(?:can|tim|thue|xin\s+so|xin\s+sdt|xin\s+contact|lien\s+he|gioi\s+thieu|co\s+ai|ai\s+co|ai\s+biet|bac\s+nao|so\s+dien\s+thoai|sdt|contact|gia|ib|inbox)\b").unwrap();
         let heuristic_guide_pattern = Regex::new(r"(?i)\b(?:guide|huong\s+dan\s+vien|dan\s+duong)\b").unwrap();
+        let heuristic_guide_cue_pattern = Regex::new(r"(?i)\b(?:can|tim|thue|xin\s+so|xin\s+sdt|xin\s+contact|lien\s+he|gioi\s+thieu|co\s+ai|ai\s+co|ai\s+biet|bac\s+nao|so\s+dien\s+thoai|sdt|contact|gia|ib|inbox)\b").unwrap();
         let heuristic_tour_pattern = Regex::new(r"(?i)\b(?:tour|slot|lich\s+trekking|lich\s+di|lich\s+leo)\b").unwrap();
         let heuristic_tour_cue_pattern = Regex::new(r"(?i)\b(?:co\s+ai|ai\s+co|ben\s+nao|tim|can|hoi|xin|con|muon|mun|dki|dang\s+ky)\b").unwrap();
         let heuristic_companion_pattern = Regex::new(r"(?i)\b(?:ghep\s+doan|ghep\s+nhom|ghep\s+team|di\s+chung|di\s+cung|leo\s+cung|dong\s+doi)\b").unwrap();
         let heuristic_companion_cue_pattern = Regex::new(r"(?i)\b(?:co\s+ai|cho\s+(?:e|em|minh)|ai\s+di|tim|can|keo)\b").unwrap();
 
         Self {
+            welcome_and_system_patterns,
             seller_patterns,
             sharing_patterns,
             high_intent_patterns,
@@ -281,7 +340,9 @@ impl RuleClassifier {
             date_patterns,
             question_patterns,
             heuristic_porter_pattern,
+            heuristic_porter_cue_pattern,
             heuristic_guide_pattern,
+            heuristic_guide_cue_pattern,
             heuristic_tour_pattern,
             heuristic_tour_cue_pattern,
             heuristic_companion_pattern,
@@ -311,6 +372,15 @@ impl RuleClassifier {
 
     pub fn classify(&self, raw_text: &str) -> RuleResult {
         let normalized = Self::strip_accents(raw_text);
+
+        // 0. Kiểm tra Bài viết hệ thống / Chào mừng thành viên mới Facebook / Nội quy
+        for pat in &self.welcome_and_system_patterns {
+            if pat.is_match(&normalized) {
+                return RuleResult::Negative {
+                    reason: "Bài viết tự động chào mừng thành viên mới hoặc thông báo quản trị viên của Facebook".to_string(),
+                };
+            }
+        }
 
         // 1. Kiểm tra Người bán (Seller)
         for pat in &self.seller_patterns {
@@ -384,7 +454,9 @@ impl RuleClassifier {
 
         // 6. Kiểm tra Heuristic: Bài viết có ngữ cảnh trekking + câu hỏi về dịch vụ cụ thể
         if has_trekking_context && has_question {
-            if self.heuristic_porter_pattern.is_match(&normalized) {
+            if self.heuristic_porter_pattern.is_match(&normalized)
+                && self.heuristic_porter_cue_pattern.is_match(&normalized)
+            {
                 return RuleResult::Positive {
                     intent: LeadIntent::HiringPorter,
                     confidence: 0.85,
@@ -395,7 +467,9 @@ impl RuleClassifier {
                 };
             }
 
-            if self.heuristic_guide_pattern.is_match(&normalized) {
+            if self.heuristic_guide_pattern.is_match(&normalized)
+                && self.heuristic_guide_cue_pattern.is_match(&normalized)
+            {
                 return RuleResult::Positive {
                     intent: LeadIntent::HiringGuide,
                     confidence: 0.85,
@@ -538,5 +612,21 @@ mod tests {
             }
             other => panic!("Expected Positive HiringPorter, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_reject_seller_photo_tour() {
+        let classifier = RuleClassifier::new();
+        let post = "Khách: Đi trekk bên mình có người chụp ảnh hem chệ? Và đây là câu trả lời Trở về từ Đà Giang, photographer gửi cho Adm 2141 pic 10 tấm như 1, tấm nào cũng đẹp cũng nét nèn nẹt. Thôi Adm chọn đại vài tấm \"bảo chứng\" cho tay nghề chụp choẹt nhà Gió nhé! Anh chị em yên tâm Đi Cùng Gió là không lo không có ảnh đẹp \"cúng phây\" nạ ------------------------------------ Trekking Đi Cùng Gió - Khám phá thiên nhiên, chinh phục mọi giới hạn Địa chỉ: 126 Trần Tử Bình, Cầu Giấy, Hà Nội Hotline hỗ trợ: 0965983302 #trekking #dicunggio #mienannhien #dagiang";
+        let res = classifier.classify(post);
+        assert!(matches!(res, RuleResult::Negative { .. }), "Bài bán tour / PR chụp ảnh Đi Cùng Gió phải bị loại trừ (Negative)");
+    }
+
+    #[test]
+    fn test_reject_facebook_group_welcome_post() {
+        let classifier = RuleClassifier::new();
+        let post = "Chào mừng các thành viên mới! Phương Bội Uyên, Trần Ahn Anh, Trung Kien, Trần Xuân Hùng, Tich Cang, Nguyễn Thị Ngọc Ánh, Hồng Sơn, Dũng Nguyễn, Uyên Phương, Nhật Tân, Phú Nguyễn Ngọc, Nguyễn Đình Chất, NguyenThi Phuong Anh, Mến Võ, Nguyễn Văn Đoàn, Nguyen Anh Nhut, Thị Hướng, Lê Đức Chí, Sơn Nguyễn, Khanh Thinh, Hương Lan, Hades Capr, Đoàn Công Khải, Ngọc Anh, Sĩ Đan, Ngô Kiều Trang, Viet NH, Hằng Nguyễn, Linh Lê, Đức Mạnh, Yen Anh Nguyen, Hoàng Trường, Duyên Duyên Phan, Mai Chang, Nguyễn Khắc Hoàng, Toàn Con, Trang Gii, Nguyễn Minh Hằng, Câu Ngũ Chỉ Sơn, Nhị' Porter Ẩn bớt";
+        let res = classifier.classify(post);
+        assert!(matches!(res, RuleResult::Negative { .. }), "Bài chào mừng thành viên mới Facebook phải bị loại trừ (Negative)");
     }
 }

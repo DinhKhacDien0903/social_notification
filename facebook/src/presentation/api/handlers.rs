@@ -522,7 +522,7 @@ pub async fn list_posts(
             p.text,
             p.source_created_at,
             p.first_seen_at,
-            (l.id IS NOT NULL) as is_lead,
+            (l.id IS NOT NULL AND l.review_status = 'APPROVED') as is_lead,
             l.intent as lead_intent,
             l.confidence as lead_confidence,
             l.location as lead_location,

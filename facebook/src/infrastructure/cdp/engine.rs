@@ -26,9 +26,44 @@ impl FacebookCliEngine {
         }
     }
 
-    /// Trích xuất post_id từ URL Facebook
-    fn extract_post_id(&self, url: &str) -> Option<String> {
-        self.url_regex.captures(url).and_then(|cap| cap.get(1)).map(|m| m.as_str().to_string())
+    /// Trích xuất post_id từ URL Facebook hoặc ref_id
+    fn extract_post_id(&self, text: &str) -> Option<String> {
+        if text.is_empty() {
+            return None;
+        }
+
+        // 1. Nhận diện set=gm.(\d+) hoặc set=pcb.(\d+) từ link ảnh trong nhóm Facebook
+        let gm_regex = Regex::new(r"set=(?:gm|pcb)\.(\d+)").ok()?;
+        if let Some(caps) = gm_regex.captures(text) {
+            if let Some(m) = caps.get(1) {
+                return Some(m.as_str().to_string());
+            }
+        }
+
+        // 2. Nhận diện multi_permalinks=(\d+)
+        let mp_regex = Regex::new(r"multi_permalinks=(\d+)").ok()?;
+        if let Some(caps) = mp_regex.captures(text) {
+            if let Some(m) = caps.get(1) {
+                return Some(m.as_str().to_string());
+            }
+        }
+
+        // 3. Regex chuẩn: /groups/.../posts/(\d+), /posts/(\d+), permalink.php?story_fbid=(\d+)
+        if let Some(caps) = self.url_regex.captures(text) {
+            if let Some(m) = caps.get(1) {
+                return Some(m.as_str().to_string());
+            }
+        }
+
+        // 4. story_fbid=(\d+)
+        let story_fbid_regex = Regex::new(r"[?&]story_fbid=(\d+)").ok()?;
+        if let Some(caps) = story_fbid_regex.captures(text) {
+            if let Some(m) = caps.get(1) {
+                return Some(m.as_str().to_string());
+            }
+        }
+
+        None
     }
 
     /// Tự động phân giải URL WebSocket của Chrome CDP nếu FB_CDP chỉ là cổng hoặc chuỗi cục bộ
@@ -312,7 +347,7 @@ impl FacebookEngine for FacebookCliEngine {
                 id
             } else if let Some(id) = self.extract_post_id(ref_id) {
                 id
-            } else if ref_id.is_empty() || ref_id == "-" {
+            } else if ref_id.is_empty() || ref_id == "-" || ref_id.starts_with("photo") {
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(author.as_bytes());
@@ -323,10 +358,10 @@ impl FacebookEngine for FacebookCliEngine {
                 ref_id.trim_matches('/').replace('/', "_")
             };
 
-            let canonical_url = if !url.is_empty() && url.starts_with("http") {
-                url.to_string()
-            } else if clean_post_id.starts_with("anon_") {
+            let canonical_url = if clean_post_id.starts_with("anon_") || clean_post_id.contains('?') || clean_post_id.contains('&') {
                 format!("https://www.facebook.com/groups/{}/", group_id)
+            } else if !url.is_empty() && url.starts_with("http") && !url.contains("/posts/photo") && !url.contains("set=gm.") {
+                url.to_string()
             } else {
                 format!("https://www.facebook.com/groups/{}/posts/{}/", group_id, clean_post_id)
             };
