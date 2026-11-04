@@ -3,16 +3,40 @@ set -e
 
 echo "[Chrome-Recycle] Starting Chrome recycle procedure..."
 
-# 1. Kill any existing chrome processes (chỉ nhắm đúng binary chrome, không kill chính script này)
-pkill -9 -f "/opt/google/chrome" || true
-sleep 1
+CHROME_PROFILE_DIR="/app/runtime/profile/chrome"
 
-# 2. Clean temporary disk cache and socket files to recover memory and disk space
+# 1. Gracefully terminate existing Chrome processes (SIGTERM first to flush SQLite/storage, fallback to SIGKILL)
+if pgrep -f "/opt/google/chrome" >/dev/null 2>&1; then
+    echo "[Chrome-Recycle] Sending SIGTERM to existing Chrome processes..."
+    pkill -15 -f "/opt/google/chrome" || true
+    for i in {1..15}; do
+        if ! pgrep -f "/opt/google/chrome" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.2
+    done
+    if pgrep -f "/opt/google/chrome" >/dev/null 2>&1; then
+        echo "[Chrome-Recycle] Chrome still running, forcing SIGKILL..."
+        pkill -9 -f "/opt/google/chrome" || true
+        sleep 0.5
+    fi
+fi
+
+# 2. Clean temporary disk cache and socket files, PRESERVE persistent profile (cookies, localStorage, IndexedDB)
+echo "[Chrome-Recycle] Cleaning temporary cache and lock files..."
 rm -rf /dev/shm/chrome-cache/* /tmp/chrome.log /root/.cache/fb/fb.sock /app/runtime/profile/fb.sock || true
-mkdir -p /dev/shm/chrome-cache /root/.cache/fb/chrome
+rm -f "$CHROME_PROFILE_DIR/Singleton"* "$CHROME_PROFILE_DIR/Default/Singleton"* 2>/dev/null || true
+mkdir -p /dev/shm/chrome-cache "$CHROME_PROFILE_DIR"
 
-# 3. Launch Google Chrome with low-footprint performance flags
-echo "[Chrome-Recycle] Launching new Chrome instance with minimal resource flags..."
+# 3. Configure optional proxy if FB_PROXY is set
+PROXY_ARGS=()
+if [ -n "$FB_PROXY" ]; then
+    echo "[Chrome-Recycle] Using configured proxy: $FB_PROXY"
+    PROXY_ARGS+=("--proxy-server=$FB_PROXY")
+fi
+
+# 4. Launch Google Chrome with anti-detection flags and persistent profile directory
+echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $CHROME_PROFILE_DIR..."
 /opt/google/chrome/chrome \
     --headless=new \
     --no-sandbox \
@@ -46,7 +70,12 @@ echo "[Chrome-Recycle] Launching new Chrome instance with minimal resource flags
     --js-flags="--max-old-space-size=256" \
     --no-default-browser-check \
     --no-first-run \
-    --user-data-dir=/root/.cache/fb/chrome \
+    --disable-blink-features=AutomationControlled \
+    --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
+    --window-size=1366,900 \
+    --lang=vi-VN,vi,en-US,en \
+    --user-data-dir="$CHROME_PROFILE_DIR" \
+    "${PROXY_ARGS[@]}" \
     about:blank >/tmp/chrome.log 2>&1 &
 
 CHROME_PID=$!
@@ -60,7 +89,7 @@ for i in {1..30}; do
     sleep 0.5
 done
 
-# 4. Re-inject primary cookies if available
+# 5. Re-inject primary cookies if available
 if [ -f /app/runtime/profile/primary_cookies.json ]; then
     echo "[Chrome-Recycle] Re-injecting cookies from /app/runtime/profile/primary_cookies.json..."
     python3 /app/bin/inject_cookies.py || true

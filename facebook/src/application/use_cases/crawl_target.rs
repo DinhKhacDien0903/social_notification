@@ -120,13 +120,26 @@ impl CrawlTargetUseCase {
         let raw_posts = match posts_result {
             Ok(p) => p,
             Err(e) => {
+                let err_str = e.to_string();
+                let is_session_dead = err_str.contains("not logged in")
+                    || err_str.contains("session expired")
+                    || err_str.contains("CHECKPOINT");
+
                 error!("Failed to fetch posts for group {}: {}", target.group_id, e);
-                // Quick Retry cho lần lỗi đầu tiên (120s), lần hai (300s),
-                // và Exponential Backoff từ lần 3 trở đi để bảo vệ tài khoản khỏi checkpoint
-                let retry_delay_seconds = match target.failure_count {
-                    0 => 120, // Thử lại nhanh sau 2 phút để không bỏ sót lead
-                    1 => 300, // Thử lại sau 5 phút
-                    fc => (target.interval_seconds as i64) * 2_i64.pow(((fc - 1) as u32).min(2)),
+                // Nếu cookie bị hết hạn/logout: ngắt mạch (Circuit Breaker) 30 phút để bảo vệ IP & tài khoản
+                // Ngược lại: Quick Retry (120s, 300s) hoặc Exponential Backoff thông thường
+                let retry_delay_seconds = if is_session_dead {
+                    warn!(
+                        "Facebook session for group {} is invalid or logged out! Pausing target for 30 minutes to protect bot account & IP.",
+                        target.group_id
+                    );
+                    1800
+                } else {
+                    match target.failure_count {
+                        0 => 120, // Thử lại nhanh sau 2 phút để không bỏ sót lead
+                        1 => 300, // Thử lại sau 5 phút
+                        fc => (target.interval_seconds as i64) * 2_i64.pow(((fc - 1) as u32).min(2)),
+                    }
                 };
                 let mut next_due = Utc::now() + Duration::seconds(retry_delay_seconds);
                 // Đảm bảo retry không va chạm (< 60s) với lịch quét của các nhóm khác

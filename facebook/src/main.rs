@@ -242,7 +242,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("Axum Web API Server listening on http://{}", addr);
 
-    axum::serve(listener, router).await?;
+    let server = axum::serve(listener, router).with_graceful_shutdown(async {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(mut sig) => {
+                    sig.recv().await;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to install SIGTERM handler: {}", e);
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => info!("Received SIGINT (Ctrl+C), initiating graceful shutdown..."),
+            _ = terminate => info!("Received SIGTERM, initiating graceful shutdown..."),
+        }
+    });
+
+    if let Err(e) = server.await {
+        tracing::error!("Server error: {}", e);
+    }
+
+    info!("HTTP server stopped. Gracefully terminating Chrome processes to flush profile & storage...");
+    let _ = tokio::process::Command::new("/bin/bash")
+        .arg("-c")
+        .arg("pkill -15 -f '/opt/google/chrome' || true")
+        .output()
+        .await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    info!("Social Listener shutdown completed cleanly.");
 
     Ok(())
 }
