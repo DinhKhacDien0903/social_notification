@@ -97,16 +97,20 @@ impl RuleClassifier {
             r"chinh\s+phuc\s+noc\s+nha\b",
             r"san\s+bien\s+may\s+bong\s+benh\b",
             r"ban\s+da\s+san\s+sang\s+(?:cho\s+chuyen|chinh\s+phuc|len\s+xe)",
-            r"con\s+\d+\s+slot\b",
+            r"(?:con\s+)?\d+\s+slots?\b",
+            r"\(\s*\d+\s+slots?\s*\)",
             r"nhanh\s+tay\s+dang\s+ky\b",
             r"tuyen\s+ctv\b",
             r"tuyen\s+dai\s+ly\b",
             r"uu\s+dai\s+dac\s+biet\b",
             r"gia\s+uu\s+dai\b",
+            r"nhan\s+uu\s+dai\b",
             r"tro\s+gia\b",
             r"chuyen\s+khoan\s+coc\b",
             r"dat\s+coc\b",
             r"giu\s+cho\b",
+            r"hoan\s+(?:huy\s+)?coc\b",
+            r"huy\s+coc\b",
             r"link\s+dang\s+ky\b",
             r"\b(?:ngay|day)\s*[1-5]\s*:",
             r"\bn[1-5]\s*:",
@@ -120,6 +124,22 @@ impl RuleClassifier {
             r"\bfanpage\s*:",
             r"\bemail\s*:",
             r"dia\s+chi\s*:",
+
+            // ── Gom khách / Tuyển thành viên cho tour / Agency & Tour Operator ──
+            r"(?:tim|tuyen)\s+(?:them\s+)?(?:dong\s+doi|thanh\s+vien|khach|nguoi|slot)\s+cho\s+khach\b",
+            r"cho\s+khach\s+vao\s+thang\b",
+            r"tim\s+them\s+dong\s+doi\s+cho\b",
+            r"nhan\s+(?:ca\s+)?doan\s+rieng\b",
+            r"doan\s+nho\s+\d+.*nguoi\b",
+            r"lich\s+trekking\s+hang\s+tuan\b",
+            r"hang\s+tuan\s+thu\s+\d\b",
+            r"bo\s+kit\s+trekking\b",
+            r"chuan\s+bi\s+bo\s+kit\b",
+            r"(?:may\s+anh|flycam)\s+ho\s+tro\b",
+            r"ho\s+tro\s+cho\s+khach\b",
+            r"(?:inbox|ib|cmt)\s+(?:minh|em|page)?\s*(?:de\s+duoc\s+)?(?:ho\s+tro\s+)?tu\s+van\b",
+            r"ib\s+minh\s+de\s+duoc\s+tu\s+van\b",
+            r"\badventure\b",
 
             // ── Thương hiệu / Agency bán tour / Quảng cáo dịch vụ ──
             r"nha\s+[\w\s]{1,15}\s+(?:nhe|luon|co|bao|lo)\b",
@@ -141,13 +161,16 @@ impl RuleClassifier {
             r"(?:khach|khach\s+hang)\s*:\s*.*(?:va\s+day\s+la\s+cau\s+tra\s+loi|tra\s+loi\s+khach|feedback\b)",
             r"tro\s+ve\s+tu\s+[\w\s]{1,25},\s*(?:photographer|anh|team|leader|guide)",
             r"mo\s+cung\b",
-            r"nhan\s+(?:tour|doan|khach)\b",
+            r"(?:ben\s+(?:minh|em)|chuyen|nha\s+em)\s+nhan\s+(?:tour|doan|khach)\b",
+            r"nhan\s+(?:tour|doan|khach)\s+(?:ghep|rieng|theo\s+yeu\s+cau)\b",
             r"to\s+chuc\s+tour\b",
             r"dich\s+vu\s+tron\s+goi\b",
             r"dich\s+vu\s+chuyen\s+nghiep\b",
-            r"leader\s+(?:kinh\s+nghiem|nhiet\s+tinh)\b",
+            r"leader\s+[\w\s]{0,25}?(?:kinh\s+nghiem|nhiet\s+tinh|chuyen\s+nghiep)\b",
             r"chuyen\s+cung\s+cap\b",
-            r"xe\s+(?:limousine|dua\s+don)\b",
+            r"(?:co|bao)\s+xe\s+(?:limousine|dua\s+don)\b",
+            r"xe\s+(?:limousine|dua\s+don)\s+(?:tan\s+noi|2\s+chieu|hai\s+chieu)\b",
+            r"xuat\s+phat\s+ben\s+xe\b",
 
             // ── 2. Dịch vụ xe du lịch / Cho thuê xe ──
             r"xe\s+du\s+lich\b",
@@ -185,7 +208,7 @@ impl RuleClassifier {
             r"mua\s+(?:ve\s+)?khong\s+(?:dung|hop|vua|kip)\b",
             r"(?:gia|pass|tl)\s*[:=]?\s*\d+[kK]\b",
 
-            // ── 4. Nhóm Phượt tự túc / Chia sẻ chi phí (Không mua tour) ──
+            // ── 4. Nhóm Phượt tự túc / Tự tổ chức tuyển thành viên / Chia sẻ chi phí (Không phải khách mua tour) ──
             r"cam\s+pu\s+chia\b",
             r"cam-pu-chia\b",
             r"campuchia\b",
@@ -197,6 +220,15 @@ impl RuleClassifier {
             r"xe\s+may\s+tu\s+tuc\b",
             r"tu\s+tuc\s+(?:chi\s+phi|bang\s+xe|xe\s+may)\b",
             r"team\s+tu\s+tuc\b",
+            r"xe\s+may\s+only\b",
+            r"cho\s+du\s+(?:\d+\s+)?mam\b",
+            r"team\s+da\s+co\s+\d+\s+nguoi\b",
+            r"(?:team|nhom|doan)\s+da\s+co\s+.*(?:can\s+)?tuyen\s+them\b",
+            r"can\s+tuyen\s+them\s+(?:dong\s+doi|thanh\s+vien|ban|nguoi|slot)\b",
+            r"tuyen\s+thanh\s+vien\s+leo\b",
+            r"tuyen\s+thanh\s+vien\b",
+            r"tuyen\s+them\s+dong\s+doi\b",
+            r"chi\s+phi\s*(?:~|khoang|tam|la|:)?\s*\d+(?:[.,]\d+)?\s*(?:tr|trieu|k|nghin|ngan)\b",
         ];
 
         let seller_patterns = seller_regexes
@@ -533,6 +565,16 @@ mod tests {
         let post2 = "TÌM THÀNH VIÊN LEO KY QUAN SAN Em tìm đồng đội leo Ky Quan San 02 ngày 01 đêm (13,14/12 - Chủ nhật, thứ 2) ace nào quan tâm ib em gửi lịch trình chi tiết ạ";
         let res2 = classifier.classify(post2);
         assert!(matches!(res2, RuleResult::Negative { .. }), "Bài tour leader gom khách phải bị loại trừ (Negative)");
+
+        // Bài Lê Hải Linh: Bán tour gom khách nhiều lịch trình, chuẩn bị bộ kit, hoàn huỷ cọc
+        let post3 = "Team mình cần tìm thêm đồng đội cho khách vào tháng 11 Phu Sa Phìn: 11-12/11, 14-15/11, 19-20/11, 23-24/11, 28-29/11,... Lùng Cúng: 12-13/11 (6 slots), 15-16/11, 18-19/11, 21-22/11, 22-23/11, 25-26/11,... (đều ở lán gần đỉnh) Nhìu Cồ San: 21-22/11, 28-29/11 Samu: 11-12/11, 14-15/11, 21-22/11 Ky Quan San: 10-12/11 (1 slot), 23-25/11 (đều ở lán Núi Muối) Núi Muối: 18-19/11 (lán Núi Muối) - Tour đã chuẩn bị bộ kit trekking: balo, gậy, găng tay, áo mưa, đèn pin,... - Leader cứng giàu kinh nghiệm - Có máy ảnh, flycam hỗ trợ cho khách - Chính sách hoàn huỷ cọc rõ ràng￼ Ngoài ra còn nhiều lịch khác, ib mình để được tư vấn thêm";
+        let res3 = classifier.classify(post3);
+        assert!(matches!(res3, RuleResult::Negative { .. }), "Bài gom khách bán tour của Lê Hải Linh phải bị loại trừ (Negative)");
+
+        // Bài Bạch Dương Adventure: Lịch trekking hàng tuần, nhận cả đoàn riêng
+        let post4 = "PHU SA PHÌN 2.865M – CUNG TREKKING RỪNG RÊU MA MỊ ĐI MỘT LẦN LÀ NHỚ CẢ ĐỜI! Muốn săn mây, ngắm núi rừng Tây Bắc và gặp gỡ những người bạn mới? Xách balo lên và đi cùng BẠCH DƯƠNG ADVENTURE thôi! RỦ HỘI BẠN – NHẬN ƯU ĐÃI NGAY! LỊCH TREKKING HÀNG TUẦN Thứ 4–5 | Thứ 7–CN Tà Chì Nhù • Phu Sa Phìn • Lùng Cúng • Kỳ Quan San & các cung miền Bắc khác. Đoàn nhỏ 8–12 người, nhận cả đoàn riêng! Cảm ơn bạn đã dành chút thời gian cho bài viết của mình, inbox mình hỗ trợ tư vấn chu đáo nhé";
+        let res4 = classifier.classify(post4);
+        assert!(matches!(res4, RuleResult::Negative { .. }), "Bài bán tour Bạch Dương Adventure phải bị loại trừ (Negative)");
     }
 
     #[test]
@@ -543,6 +585,21 @@ mod tests {
         let post = "Tìm thêm người leo combo Sơn Nhạc Chung, Tà xùa hồ cuối tuần này 7-8/11. Tối thứ 6 xuất phát, đi xe tự lái đến đèo Ô quy hồ. 7h leo Sơn Nhạc Chung, sang Fancipan và đi cáp treo về. Tối ngủ Tam Đường. Sáng chủ nhật 7h leo Tà xùa hồ, chiều về chèo sup hồ Thác bạc. Chiều tối ngắm hoàng hôn và ăn buffet Hải Yến, về Hn. Chi phí căm pu chia chân núi. BD Ẩn bớt";
         let res = classifier.classify(post);
         assert!(matches!(res, RuleResult::Negative { .. }), "Bài phượt tự túc chia chi phí phải bị loại trừ (Negative)");
+
+        // Bài Công Khả: Team đã có 5 người tuyển thêm đồng đội chi phí ~2,7tr
+        let post2 = "Team đã có 5 người cần tuyển thêm đồng đội leo Ky Quan San 30/11-2/12 xuất phát bến xe Mỹ Đình - Sapa, chi phí ~2,7tr";
+        let res2 = classifier.classify(post2);
+        assert!(matches!(res2, RuleResult::Negative { .. }), "Bài tuyển thêm đồng đội báo giá chi phí cố định phải bị loại trừ (Negative)");
+
+        // Tuyển thành viên leo Phu Sa Phìn
+        let post3 = "Tuyển thành viên leo phu sa phìn — đỉnh phu sa phìn 2868m 20-21/11 phu sa phìn - tà chi Nhù 22-23/11 phu sa phìn #trekking";
+        let res3 = classifier.classify(post3);
+        assert!(matches!(res3, RuleResult::Negative { .. }), "Bài tuyển thành viên leo núi phải bị loại trừ (Negative)");
+
+        // Đón hoàng hôn xe máy only
+        let post4 = "ĐÓN HOÀNG HÔN NÚI DINH, NOV 08, 2026, CHỦ NHẬT XE MÁY ONLY - TP HCM CŨ & TP THỦ ĐỨC CŨ ONLY ***LƯU Ý: TEAM YẾU, ĐEM ĐÈN";
+        let res4 = classifier.classify(post4);
+        assert!(matches!(res4, RuleResult::Negative { .. }), "Bài phượt xe máy tự túc phải bị loại trừ (Negative)");
     }
 
     #[test]

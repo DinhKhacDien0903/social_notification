@@ -29,7 +29,11 @@ Analyze this Facebook group post and determine if the author is a prospective cu
 --- UNTRUSTED POST CONTENT END ---
 
 CRITERIA:
-1. is_lead: true if the author is asking to buy a tour, looking for companions (ghép đoàn), hiring guide/porter, or asking practical questions to plan a trip soon. false if the author is selling tours, offering services, sharing photos, posting news, or spamming.
+1. is_lead: true ONLY if the author is an individual prospective customer actively seeking to buy a tour, hire a guide/porter, join someone else's trip, or asking practical advice to plan a trip soon.
+Set is_lead to false if:
+- The author is a tour agency, guide, or organizer advertising tours, departures, schedules, slots, or packages (e.g. "team mình tìm thêm đồng đội cho khách", "lịch trekking hàng tuần", "nhận cả đoàn riêng", "bộ kit trekking").
+- The author is recruiting/gathering members for their own team with fixed plans/costs (e.g. "team đã có X người cần tuyển thêm đồng đội", "chi phí ~2.7tr").
+- The author is sharing travel photos, reselling gear, renting vehicles, or spamming.
 2. intent: one of ["looking_for_tour", "finding_companions", "hiring_guide", "hiring_porter", "route_advice", "other"].
 3. confidence: float between 0.0 and 1.0.
 4. location: specific mountain, peak, or trekking route mentioned (e.g. "Fansipan", "Tà Năng", "Lảo Thẩn") or null.
