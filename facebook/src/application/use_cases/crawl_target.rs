@@ -81,7 +81,7 @@ impl CrawlTargetUseCase {
             let mut rng = rand::thread_rng();
             rng.gen_range(-0.06..0.06)
         };
-        let base = base_interval_seconds.max(180) as f64;
+        let base = base_interval_seconds.max(300) as f64;
 
         // Giờ Việt Nam (UTC + 7)
         let vn_hour = (Utc::now() + Duration::hours(7))
@@ -97,10 +97,9 @@ impl CrawlTargetUseCase {
             1.0
         };
 
+        const MIN_GAP_SECONDS: i64 = 120;
         let interval_secs = (base * multiplier * (1.0 + jitter_percent)).round() as i64;
         let mut candidate = Utc::now() + Duration::seconds(interval_secs.max(MIN_GAP_SECONDS));
-
-        const MIN_GAP_SECONDS: i64 = 90;
 
         if let Ok(other_times) = target_repo.get_active_scheduled_times(target_id).await {
             let mut sorted_times = other_times;

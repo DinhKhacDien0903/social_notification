@@ -51,7 +51,7 @@ impl AppConfig {
             crawl_interval_seconds: env::var("CRAWL_INTERVAL_SECONDS")
                 .ok()
                 .and_then(|i| i.parse().ok())
-                .unwrap_or(180),
+                .unwrap_or(600),
             max_posts_per_crawl: env::var("MAX_POSTS_PER_CRAWL")
                 .ok()
                 .and_then(|i| i.parse().ok())

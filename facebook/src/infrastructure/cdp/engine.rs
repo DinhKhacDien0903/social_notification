@@ -320,7 +320,7 @@ impl FacebookEngine for FacebookCliEngine {
             .await;
 
         let current_count = self.crawl_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        if current_count % 12 == 0 {
+        if current_count % 100 == 0 {
             info!("Crawl counter reached {} runs. Triggering Chrome auto-recycle to clean up RAM...", current_count);
             Self::trigger_chrome_recycle().await;
         }

@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let startup_now = chrono::Utc::now();
     const STARTUP_INITIAL_DELAY_SECS: i64 = 15;
-    const STARTUP_SLOT_GAP_SECS: i64 = 90;
+    const STARTUP_SLOT_GAP_SECS: i64 = 120;
 
     for (i, target) in enabled_targets.iter().enumerate() {
         let staggered_due = startup_now + chrono::Duration::seconds(STARTUP_INITIAL_DELAY_SECS + (i as i64 * STARTUP_SLOT_GAP_SECS));

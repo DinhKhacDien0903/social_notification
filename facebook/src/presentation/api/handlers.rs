@@ -137,7 +137,7 @@ pub async fn create_target(
         }
     }
 
-    let interval = payload.interval_seconds.unwrap_or(180);
+    let interval = payload.interval_seconds.unwrap_or(600);
     let new_target = NewWatchTarget {
         platform,
         group_id: clean_group_id.to_string(),
