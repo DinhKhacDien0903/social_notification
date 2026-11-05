@@ -1,36 +1,116 @@
 import asyncio
 import json
+import os
+import sys
+import time
 import urllib.request
 import websockets
 
 async def main():
+    cookie_file = sys.argv[1] if len(sys.argv) > 1 else "/app/runtime/profile/primary_cookies.json"
+    if not os.path.exists(cookie_file):
+        alt = "./runtime/profile/primary_cookies.json"
+        if os.path.exists(alt):
+            cookie_file = alt
+        else:
+            print(f"Cookie file {cookie_file} does not exist, skipping injection.")
+            return
+
     try:
-        with urllib.request.urlopen("http://127.0.0.1:9222/json/version") as resp:
-            info = json.loads(resp.read().decode())
+        with open(cookie_file, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
     except Exception as e:
-        print("Failed to get Chrome debug info:", e)
+        print(f"Error reading {cookie_file}: {e}")
         return
 
-    ws_url = info.get("webSocketDebuggerUrl")
-    print("Connecting to CDP ws:", ws_url)
-    
-    cookies = [
-        {"name": "c_user", "value": "61594533200183", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": False},
-        {"name": "xs", "value": "41%3AziGMj3v1LOnJsw%3A2%3A1793553454%3A-1%3A-1%3A%3AAc06CgpknyqKK2qMXsaSSYh0MKAW2NphBM3kF6xjFA", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "datr", "value": "4kZeaoK9e370AXaUe17FS_Mq", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "fr", "value": "1hQz3GZ8CF1n3WF6W.AWfCBaPvI1xIOG5oLCfy6x9OhWbkDCyc6_G1NF9Kzr-sRjqhBaA.Bq53Qx..AAA.0.0.Bq53Qx.AWf1MN6omi0287tqvkqSITkjbp8", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "sb", "value": "4kZeajRrs7f-irgmnIrYHTur", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "locale", "value": "vi_VN", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": False},
-        {"name": "ps_l", "value": "1", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "ps_n", "value": "1", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": True},
-        {"name": "wd", "value": "1920x945", "domain": ".facebook.com", "path": "/", "secure": True, "httpOnly": False}
-    ]
-    
+    cookie_list = []
+    if isinstance(raw_data, list):
+        cookie_list = raw_data
+    elif isinstance(raw_data, dict) and "cookies" in raw_data:
+        if isinstance(raw_data["cookies"], list):
+            cookie_list = raw_data["cookies"]
+        elif isinstance(raw_data["cookies"], str):
+            try:
+                cookie_list = json.loads(raw_data["cookies"])
+            except Exception:
+                pass
+    elif isinstance(raw_data, dict):
+        for k, v in raw_data.items():
+            cookie_list.append({"name": k, "value": str(v), "domain": ".facebook.com", "path": "/"})
+
+    if not cookie_list:
+        print("No cookies found to inject.")
+        return
+
+    now = time.time()
+    formatted_cookies = []
+    for c in cookie_list:
+        name = c.get("name")
+        value = c.get("value")
+        if not name or value is None:
+            continue
+        domain = c.get("domain") or ".facebook.com"
+        if not domain.startswith(".") and not domain.startswith("http"):
+            domain = "." + domain
+        path = c.get("path") or "/"
+        secure = bool(c.get("secure", True))
+        http_only = bool(c.get("httpOnly", c.get("http_only", name in ("xs", "datr", "fr", "sb"))))
+
+        # Ensure cookies are persistent across Chrome restarts instead of temporary session cookies
+        expires_raw = c.get("expires") or c.get("expirationDate")
+        try:
+            expires = float(expires_raw) if expires_raw and float(expires_raw) > now else now + (365 * 86400)
+        except (ValueError, TypeError):
+            expires = now + (365 * 86400)
+
+        same_site = c.get("sameSite") or ("None" if secure else "Lax")
+        if same_site not in ("Strict", "Lax", "None"):
+            same_site = "Lax"
+
+        formatted_cookies.append({
+            "name": name,
+            "value": str(value),
+            "domain": domain,
+            "path": path,
+            "secure": secure,
+            "httpOnly": http_only,
+            "expires": expires,
+            "sameSite": same_site
+        })
+
+    cdp_port = os.getenv("FB_CDP", "9222").strip()
+    if cdp_port.startswith("ws://") or cdp_port.startswith("wss://"):
+        ws_url = cdp_port
+    else:
+        port = cdp_port.lstrip(":")
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as resp:
+                info = json.loads(resp.read().decode())
+                ws_url = info.get("webSocketDebuggerUrl")
+        except Exception as e:
+            print(f"Failed to query Chrome on port {port}: {e}")
+            return
+
+    if not ws_url:
+        print("Could not find webSocketDebuggerUrl")
+        return
+
+    print(f"Injecting {len(formatted_cookies)} persistent cookies into Chrome via CDP ({ws_url})...")
     async with websockets.connect(ws_url) as ws:
-        req = {"id": 1, "method": "Storage.setCookies", "params": {"cookies": cookies}}
+        # Step 1: Clear existing cookies to avoid duplicates or corrupted CookieMonster state
+        await ws.send(json.dumps({"id": 1, "method": "Storage.clearCookies"}))
+        clear_resp = await ws.recv()
+        print(f"CDP Storage.clearCookies response: {clear_resp}")
+
+        # Step 2: Set persistent cookies
+        req = {
+            "id": 2,
+            "method": "Storage.setCookies",
+            "params": {"cookies": formatted_cookies}
+        }
         await ws.send(json.dumps(req))
-        res = await ws.recv()
-        print("Storage.setCookies response:", res)
+        resp = await ws.recv()
+        print(f"CDP Storage.setCookies response: {resp}")
 
 if __name__ == "__main__":
     asyncio.run(main())

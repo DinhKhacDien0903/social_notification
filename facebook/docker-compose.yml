@@ -27,7 +27,7 @@ services:
       - CRAWL_INTERVAL_SECONDS=180
       - MAX_POSTS_PER_CRAWL=5
       - FB_CDP=9222
-      - FB_TIMEOUT=300
+      - FB_TIMEOUT=35
       - FB_PROXY=${FB_PROXY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-disabled}
       - GROQ_PRIMARY_MODEL=${GROQ_PRIMARY_MODEL:-openai/gpt-oss-120b}

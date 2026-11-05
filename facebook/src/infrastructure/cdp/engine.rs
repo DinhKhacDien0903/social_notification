@@ -271,7 +271,9 @@ impl FacebookEngine for FacebookCliEngine {
         // Phân giải WebSocket URL chính xác từ Chrome CDP
         let cdp_target = Self::resolve_cdp_target(&self.fb_cdp).await;
 
-        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "300".to_string());
+        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "35".to_string());
+        let timeout_secs: u64 = fb_timeout.parse().unwrap_or(35);
+        let hard_timeout = std::time::Duration::from_secs(timeout_secs + 5);
 
         let mut cmd = Command::new(&self.fb_bin_path);
         cmd.arg("posts")
@@ -283,9 +285,28 @@ impl FacebookEngine for FacebookCliEngine {
             .env("FB_CDP", &cdp_target)
             .env("FB_TIMEOUT", &fb_timeout)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
 
-        let output_res = cmd.output().await;
+        let output_res = match tokio::time::timeout(hard_timeout, cmd.output()).await {
+            Ok(res) => res,
+            Err(_) => {
+                warn!(
+                    "CRAWL TIMEOUT (> {}s) for group {}. Aborting process and resetting CDP...",
+                    hard_timeout.as_secs(),
+                    formatted_target
+                );
+                // Dọn dẹp khẩn cấp tab Chrome và force stop fb daemon
+                Self::cleanup_cdp_tabs(&cdp_target).await;
+                let _ = Command::new(&self.fb_bin_path)
+                    .arg("stop")
+                    .env("FB_PROFILE", &self.profile_dir)
+                    .env("FB_CDP", &cdp_target)
+                    .output()
+                    .await;
+                return Err(format!("crawl timed out after {}s (fail-fast protection)", hard_timeout.as_secs()).into());
+            }
+        };
 
         // Luôn cleanup tab Chrome để giải phóng CPU và RAM dù lệnh có lỗi hay timeout
         Self::cleanup_cdp_tabs(&cdp_target).await;

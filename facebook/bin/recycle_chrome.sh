@@ -22,10 +22,10 @@ if pgrep -f "/opt/google/chrome" >/dev/null 2>&1; then
     fi
 fi
 
-# 2. Clean temporary disk cache and socket files, PRESERVE persistent profile (cookies, localStorage, IndexedDB)
+# 2. Clean temporary disk cache and lock files, PRESERVE persistent profile (cookies, localStorage, IndexedDB)
 echo "[Chrome-Recycle] Cleaning temporary cache and lock files..."
 rm -rf /dev/shm/chrome-cache/* /tmp/chrome.log /root/.cache/fb/fb.sock /app/runtime/profile/fb.sock || true
-rm -f "$CHROME_PROFILE_DIR/Singleton"* "$CHROME_PROFILE_DIR/Default/Singleton"* 2>/dev/null || true
+rm -f "$CHROME_PROFILE_DIR/Singleton"* "$CHROME_PROFILE_DIR/Default/Singleton"* "$CHROME_PROFILE_DIR/Default/LOCK" "$CHROME_PROFILE_DIR/Default/"*-journal 2>/dev/null || true
 mkdir -p /dev/shm/chrome-cache "$CHROME_PROFILE_DIR"
 
 # 3. Configure optional proxy if FB_PROXY is set
@@ -42,11 +42,8 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --no-sandbox \
     --disable-dev-shm-usage \
     --disable-gpu \
-    --disable-software-rasterizer \
-    --disable-webgl \
-    --disable-3d-apis \
-    --disable-accelerated-2d-canvas \
-    --disable-gpu-rasterization \
+    --use-gl=angle \
+    --use-angle=swiftshader \
     --blink-settings=imagesEnabled=false \
     --disk-cache-dir=/dev/shm/chrome-cache \
     --disk-cache-size=10485760 \
@@ -59,7 +56,7 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --remote-debugging-port=9222 \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \
-    --renderer-process-limit=1 \
+    --renderer-process-limit=2 \
     --disable-background-networking \
     --disable-sync \
     --disable-default-apps \
@@ -67,11 +64,11 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --mute-audio \
     --disable-breakpad \
     --disable-crash-reporter \
-    --js-flags="--max-old-space-size=256" \
+    --js-flags="--max-old-space-size=512" \
     --no-default-browser-check \
     --no-first-run \
     --disable-blink-features=AutomationControlled \
-    --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
+    --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36" \
     --window-size=1366,900 \
     --lang=vi-VN,vi,en-US,en \
     --user-data-dir="$CHROME_PROFILE_DIR" \

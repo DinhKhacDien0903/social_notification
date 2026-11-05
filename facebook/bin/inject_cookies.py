@@ -1,15 +1,20 @@
 import asyncio
 import json
 import os
+import sys
 import time
 import urllib.request
 import websockets
 
 async def main():
-    cookie_file = "/app/runtime/profile/primary_cookies.json"
+    cookie_file = sys.argv[1] if len(sys.argv) > 1 else "/app/runtime/profile/primary_cookies.json"
     if not os.path.exists(cookie_file):
-        print(f"Cookie file {cookie_file} does not exist, skipping injection.")
-        return
+        alt = "./runtime/profile/primary_cookies.json"
+        if os.path.exists(alt):
+            cookie_file = alt
+        else:
+            print(f"Cookie file {cookie_file} does not exist, skipping injection.")
+            return
 
     try:
         with open(cookie_file, "r", encoding="utf-8") as f:
@@ -92,8 +97,14 @@ async def main():
 
     print(f"Injecting {len(formatted_cookies)} persistent cookies into Chrome via CDP ({ws_url})...")
     async with websockets.connect(ws_url) as ws:
+        # Step 1: Clear existing cookies to avoid duplicates or corrupted CookieMonster state
+        await ws.send(json.dumps({"id": 1, "method": "Storage.clearCookies"}))
+        clear_resp = await ws.recv()
+        print(f"CDP Storage.clearCookies response: {clear_resp}")
+
+        # Step 2: Set persistent cookies
         req = {
-            "id": 1,
+            "id": 2,
             "method": "Storage.setCookies",
             "params": {"cookies": formatted_cookies}
         }
