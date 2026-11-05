@@ -84,6 +84,18 @@ impl ManageSessionUseCase {
             .output()
             .await;
 
+        // Kích hoạt ngay tab neo Facebook và gửi presence ping đầu tiên để kết nối Comet WebSocket trong background (không chặn API response)
+        if std::path::Path::new(inject_script).exists() {
+            let script_path = inject_script.to_string();
+            tokio::spawn(async move {
+                let _ = tokio::process::Command::new("python3")
+                    .arg(script_path)
+                    .arg("--heartbeat")
+                    .output()
+                    .await;
+            });
+        }
+
         // Cập nhật CSDL: Reset auth_failure_count về 0, chuyển status sang READY
         let now = Utc::now();
         let existing = self.session_repo.get_session(session_id).await?;

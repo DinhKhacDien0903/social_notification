@@ -1,0 +1,61 @@
+# ==============================================================================
+# Social Listener (Facebook) - Production Docker Compose (Standalone Companion)
+# Target OS: Ubuntu 24.04 LTS (Chạy cùng server & cùng mạng anthill_prod_net)
+# ==============================================================================
+
+services:
+  social-listener:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: anthill-social-listener:latest
+    container_name: anthill_prod_social_listener
+    restart: unless-stopped
+    init: true
+    shm_size: "1gb"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1024M
+    # An toàn: Chỉ mở port 8000 trên loopback 127.0.0.1 để quản trị curl debug nội bộ VPS
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
+      - FB_BIN_PATH=/app/bin/fb
+      - CHROME_PROFILE_DIR=/app/runtime/profile
+      - CRAWL_INTERVAL_SECONDS=${CRAWL_INTERVAL_SECONDS:-300}
+      - MAX_POSTS_PER_CRAWL=${MAX_POSTS_PER_CRAWL:-5}
+      - FB_CDP=9222
+      - FB_TIMEOUT=${FB_TIMEOUT:-60}
+      - FB_PROXY=${FB_PROXY:-}
+      # AI Gateway (Tùy chọn: Groq + Gemini)
+      - GROQ_API_KEY=${GROQ_API_KEY:-disabled}
+      - GROQ_PRIMARY_MODEL=${GROQ_PRIMARY_MODEL:-openai/gpt-oss-120b}
+      - GROQ_FALLBACK_MODEL=${GROQ_FALLBACK_MODEL:-openai/gpt-oss-20b}
+      - GROQ_QWEN_MODEL=${GROQ_QWEN_MODEL:-qwen/qwen3.6-27b}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-disabled}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      # Kết nối nội bộ tới Anthill Backend API qua mạng Docker nội bộ (anthill_prod_net)
+      - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://anthill_prod_api:8080/api/v1/webhooks/social-leads}
+      - TO_KIEN_TOKEN=${TO_KIEN_TOKEN:-${SOCIAL_WEBHOOK_TOKEN:?Vui long thiet lap TO_KIEN_TOKEN hoac SOCIAL_WEBHOOK_TOKEN}}
+    volumes:
+      - ./data:/app/data
+      - ./runtime/profile:/app/runtime/profile
+      - ./bin:/app/bin
+      - ./js:/app/js
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/readiness"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - anthill_prod_net
+
+networks:
+  anthill_prod_net:
+    external: true

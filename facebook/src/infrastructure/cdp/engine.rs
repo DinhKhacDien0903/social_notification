@@ -96,7 +96,8 @@ impl FacebookCliEngine {
         fb_cdp.to_string()
     }
 
-    /// Đóng các tab trong Chrome CDP sau khi crawl xong để giải phóng triệt để CPU và RAM
+    /// Đóng các tab trong Chrome CDP sau khi crawl xong để giải phóng triệt để CPU và RAM,
+    /// đồng thời giữ lại 1 tab Facebook neo (anchor) để duy trì WebSocket Comet và tránh bị Facebook logout sau 1 tiếng.
     async fn cleanup_cdp_tabs(fb_cdp: &str) {
         let port = if let Some(pos) = fb_cdp.find("127.0.0.1:") {
             let after = &fb_cdp[pos + "127.0.0.1:".len()..];
@@ -119,28 +120,42 @@ impl FacebookCliEngine {
             }
         };
 
-        // Tìm tab 'about:blank' đã có sẵn để làm neo (anchor), tránh mở thừa tab mới
+        // 1. Tìm tab Facebook chính (home hoặc notifications) để làm anchor duy trì Comet session
         let mut anchor_id = pages.iter().find_map(|p| {
             let tab_type = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
             let tab_url = p.get("url").and_then(|u| u.as_str()).unwrap_or("");
-            if tab_type == "page" && tab_url == "about:blank" {
+            if tab_type == "page" && tab_url.contains("facebook.com") && !tab_url.contains("/groups/") && !tab_url.contains("/posts/") {
                 p.get("id").and_then(|i| i.as_str()).map(|s| s.to_string())
             } else {
                 None
             }
         });
 
-        // Chỉ khi chưa có tab about:blank nào mới mở 1 tab duy nhất làm anchor để Chrome không thoát
+        // 2. Nếu chưa có tab Facebook chính nào, tìm bất kỳ tab 'about:blank' nào hoặc mở tab Facebook mới
         if anchor_id.is_none() {
-            let new_tab_url = format!("http://127.0.0.1:{}/json/new?about:blank", port);
-            if let Ok(resp) = client.put(&new_tab_url).header("Host", &host_header).send().await {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    anchor_id = json.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+            let blank_id = pages.iter().find_map(|p| {
+                let tab_type = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                let tab_url = p.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                if tab_type == "page" && tab_url == "about:blank" {
+                    p.get("id").and_then(|i| i.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            });
+
+            if let Some(bid) = blank_id {
+                anchor_id = Some(bid);
+            } else {
+                let new_tab_url = format!("http://127.0.0.1:{}/json/new?https://www.facebook.com/", port);
+                if let Ok(resp) = client.put(&new_tab_url).header("Host", &host_header).send().await {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        anchor_id = json.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+                    }
                 }
             }
         }
 
-        // Đóng toàn bộ các tab type 'page' khác (Facebook, URL rỗng, duplicate about:blank)
+        // 3. Đóng toàn bộ các tab crawl target (groups, posts) hoặc duplicate, CHỈ GIỮ LẠI anchor tab
         for p in &pages {
             let tab_type = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
             let id = p.get("id").and_then(|i| i.as_str()).unwrap_or("");
@@ -155,7 +170,16 @@ impl FacebookCliEngine {
                 let _ = client.get(&close_url).header("Host", &host_header).send().await;
             }
         }
-        debug!("Cleaned up lingering Chrome CDP tabs, kept anchor {:?}", anchor_id);
+        debug!("Cleaned up lingering Chrome CDP tabs, kept session anchor {:?}", anchor_id);
+
+        // 4. Tự động đồng bộ cookies tươi mới từ Chrome về file primary_cookies.json
+        tokio::spawn(async {
+            let _ = tokio::process::Command::new("python3")
+                .arg("/app/bin/inject_cookies.py")
+                .arg("--sync-back")
+                .output()
+                .await;
+        });
     }
 
     /// Phân tích chuỗi thời gian bài viết Facebook sang DateTime<Utc>

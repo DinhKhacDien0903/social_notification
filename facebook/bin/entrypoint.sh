@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Đảm bảo quyền thực thi cho các file trong /app/bin
+chmod +x /app/bin/* 2>/dev/null || true
+
 # Khởi động Chrome lần đầu bằng recycle script
 /app/bin/recycle_chrome.sh
 

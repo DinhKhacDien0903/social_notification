@@ -150,7 +150,39 @@ impl CrawlTargetUseCase {
         let run_id = Uuid::new_v4().to_string();
         info!("Starting crawl run {} for target group '{}' ({})", run_id, target.display_name, target.group_id);
 
-        let posts_result = self.engine.fetch_group_posts(&target.group_id, self.max_posts).await;
+        let initial_fetch = self.engine.fetch_group_posts(&target.group_id, self.max_posts).await;
+
+        // Auto-Recovery Strategy: Nếu gặp lỗi Auth/Login, thử tự động nạp lại cookie từ file primary_cookies.json và retry một lần
+        let posts_result = match initial_fetch {
+            Ok(p) => Ok(p),
+            Err(e) => {
+                let err_msg = e.to_string();
+                if Self::is_auth_error(&err_msg) {
+                    warn!(
+                        "Auth issue encountered on group '{}' ({}): '{}'. Initiating automatic session recovery via inject_cookies --ensure-active...",
+                        target.display_name, target.group_id, err_msg
+                    );
+                    let recovery = tokio::process::Command::new("python3")
+                        .arg("/app/bin/inject_cookies.py")
+                        .arg("--ensure-active")
+                        .output()
+                        .await;
+
+                    if let Ok(rec_out) = recovery {
+                        if rec_out.status.success() {
+                            info!("Session auto-recovery succeeded! Retrying crawl once for group '{}'...", target.group_id);
+                            self.engine.fetch_group_posts(&target.group_id, self.max_posts).await
+                        } else {
+                            Err(e)
+                        }
+                    } else {
+                        Err(e)
+                    }
+                } else {
+                    Err(e)
+                }
+            }
+        };
 
         let raw_posts = match posts_result {
             Ok(p) => {

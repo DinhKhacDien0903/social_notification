@@ -14,7 +14,10 @@ use application::classifier::{ClassifierService, HybridAiGateway, RuleClassifier
 use application::use_cases::{ClassifyJobsUseCase, CrawlTargetUseCase, DispatchOutboxUseCase, ManageSessionUseCase};
 use domain::{NewWatchTarget, SessionRepository, SocialSession, TargetRepository, WatchTarget};
 use infrastructure::{AnthillClient, AppConfig, FacebookCliEngine, SqliteDatabase};
-use presentation::{create_router, run_outbox_worker, run_pipeline_worker, run_scheduler_worker, AppState};
+use presentation::{
+    create_router, run_heartbeat_worker, run_outbox_worker, run_pipeline_worker, run_scheduler_worker,
+    AppState,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -238,7 +241,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_outbox_worker(outbox_dispatch_uc, Some(outbox_sub_notify)).await;
     });
 
-    info!("All 3 background workers spawned successfully (Scheduler, Classifier Pipeline, Outbox Dispatcher)");
+    let heartbeat_session_repo = session_repo.clone();
+    tokio::spawn(async move {
+        run_heartbeat_worker(heartbeat_session_repo).await;
+    });
+
+    info!("All 4 background workers spawned successfully (Scheduler, Classifier Pipeline, Outbox Dispatcher, Session Heartbeat)");
 
     // 8. Khởi chạy Axum REST API Server
     let app_state = AppState {
