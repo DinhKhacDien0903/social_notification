@@ -14,8 +14,9 @@
 2. [Rà Soát Mã Nguồn & Các Điểm Cần Lưu Ý (Codebase Review)](#2-rà-soát-mã-nguồn--các-điểm-cần-lưu-ý)
 3. [Cấu Hình Môi Trường & Bảo Mật Hai Chiều (.NET API $\leftrightarrow$ Rust Social)](#3-cấu-hình-môi-trường--bảo-mật-hai-chiều)
 4. [Hướng Dẫn Triển Khai Chi Tiết Lên Server Ubuntu (Deployment Guide)](#4-hướng-dẫn-triển-khai-chi-tiết-lên-server-ubuntu)
-   - [Phương Án 1 (Khuyên Dùng): Tích hợp vào file `compose.prod.yml` gốc](#phương-án-1-khuyên-dùng-tích-hợp-vào-composeprodyml-gốc)
+   - [Phương Án 1: Tích hợp vào file `compose.prod.yml` gốc](#phương-án-1-tích-hợp-vào-composeprodyml-gốc)
    - [Phương Án 2: Triển khai độc lập nhưng chung mạng `anthill_prod_net`](#phương-án-2-triển-khai-độc-lập-chung-mạng-anthill_prod_net)
+   - [Phương Án 3 (Khuyên Dùng Cho Production): Tự động hóa CI/CD với GitHub Actions & GHCR](#phương-án-3-khuyên-dùng-cho-production-tự-động-hóa-cicd-với-github-actions--ghcr-tương-tự-anthill-backend)
 5. [Kiểm Thử Nghiệm Thu Sau Khi Triển Khai (Verification & Smoke Tests)](#5-kiểm-thử-nghiệm-thu-sau-khi-triển-khai)
 6. [Hướng Dẫn Trích Xuất Cookie Facebook Trên Điện Thoại (Tương Tự Cookie-Editor)](#6-hướng-dẫn-trích-xuất-cookie-facebook-trên-điện-thoại)
    - [Bản chất kỹ thuật quan trọng của Cookie Facebook](#61-bản-chất-kỹ-thuật-quan-trọng-của-cookie-facebook)
@@ -350,38 +351,319 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ---
 
-### PHƯƠNG ÁN 3 (CHUẨN ENTERPRISE): TỰ ĐỘNG HÓA CI/CD VỚI GITHUB ACTIONS (TƯƠNG TỰ ANTHILL BACKEND)
+### PHƯƠNG ÁN 3 (KHUYÊN DÙNG CHO PRODUCTION): TỰ ĐỘNG HÓA CI/CD VỚI GITHUB ACTIONS & GHCR (TƯƠNG TỰ ANTHILL BACKEND)
 
-Thay vì biên dịch Rust thủ công tốn CPU/RAM trên VPS, hệ thống áp dụng mô hình CI/CD tương tự như `anthill_be`:
-1. **GitHub Actions Runner** tự động chạy kiểm thử (`cargo test`), biên dịch Rust và đóng gói Google Chrome vào Docker image tối ưu.
-2. Tự động đẩy Image lên **GitHub Container Registry (GHCR)**: `ghcr.io/dinhkhacdien0903/social_notification/facebook`.
-3. Tự động SSH vào VPS iNET, kéo image mới về và cập nhật container `anthill_prod_social_listener` trong 10-15 giây mà không tiêu tốn tài nguyên server!
+Đây là **phương pháp triển khai chuẩn mực, an toàn và tối ưu nhất cho môi trường Production**, kế thừa toàn bộ kiến trúc CI/CD của cụm Backend `anthill_be`.
 
-#### 1. Cấu hình GitHub Secrets trong Repository `social_notification`
+#### 1. Bối cảnh kỹ thuật: Vì sao bắt buộc dùng GitHub Actions & GHCR?
 
-Truy cập **Settings > Secrets and variables > Actions** trên GitHub repo `social_notification`, bổ sung các Secrets sau (dùng chung thông tin với `anthill_be`):
+* **Rủi ro khi biên dịch trực tiếp trên VPS (Phương án 1 & 2):**  
+  Social Listener được viết bằng **100% Rust Native**. Quá trình biên dịch `cargo build --release` với hệ sinh thái Tokio, Axum, Rusqlite, Serde... ngốn **100% CPU và từ 2–4 GB RAM** liên tục trong 5–10 phút.  
+  Trên máy chủ iNET cấu hình 3 vCPU / 6 GB RAM, việc build trực tiếp có thể gây **nghẽn server, timeout kết nối CSDL MySQL, hoặc kích hoạt OOM Killer làm sập API Backend** đang phục vụ người dùng.
+* **Lợi ích vượt trội của GitHub Actions + GHCR (GitHub Container Registry):**  
+  - Toàn bộ công đoạn kiểm thử (`cargo test`), biên dịch Rust và đóng gói Google Chrome được thực hiện hoàn toàn trên **GitHub Actions Runner** (máy chủ đám mây cấu hình cao, miễn phí).
+  - Image hoàn chỉnh được đẩy lên registry riêng tư `ghcr.io/dinhkhacdien0903/social_notification/facebook`.
+  - Trên máy chủ VPS iNET, hệ thống chỉ cần kéo image nén về và thay thế container trong **10–15 giây**, tiêu tốn **0% CPU** biên dịch, đảm bảo **Zero-Downtime** cho các dịch vụ cốt lõi khác!
 
-| Tên GitHub Secret | Giá trị mẫu | Mục đích |
+---
+
+#### 2. Sơ đồ luồng triển khai tự động (CI/CD Pipeline Flow)
+
+```mermaid
+flowchart TD
+    A["Developer push code lên main / tạo Git Tag v*"] --> B["GitHub Actions Triggered"]
+    
+    subgraph GitHub Runner ["GitHub Actions Cloud Runner"]
+        B --> C["Job 1: validate<br>(Cài libsqlite3-dev, chạy cargo test)"]
+        C --> D["Job 2: docker-publish<br>(Build Multi-stage Dockerfile)"]
+        D --> E["Trivy Security Vulnerability Scan"]
+        E --> F["Push Image lên GHCR:<br>ghcr.io/.../facebook:sha-xxx & production"]
+    end
+    
+    subgraph iNET Production Server ["iNET Cloud VPS (103.72.98.27:24700)"]
+        F --> G["Job 3: deploy (SSH)"]
+        G --> H["Rsync docker-compose.prod.yml sang /opt/.../social_listener/"]
+        H --> I["Cập nhật IMAGE_TAG=sha-xxx vào file .env"]
+        I --> J["Docker Login GHCR & Pull Image mới"]
+        J --> K["docker compose up -d --no-deps social-listener"]
+        K --> L["Vòng lặp Poll Health Probe: /health/readiness (30 lần / 300s)"]
+        L --> M["Deploy thành công & Báo cáo"]
+    end
+```
+
+---
+
+#### 3. Cấu hình GitHub Secrets trong Repository `social_notification`
+
+Để GitHub Actions có quyền kết nối SSH vào máy chủ và kéo/đẩy Docker image, bạn cần thiết lập các Secret trong mục:  
+**Repo GitHub `social_notification` $\to$ Settings $\to$ Secrets and variables $\to$ Actions $\to$ New repository secret**:
+
+| Tên GitHub Secret | Giá trị cấu hình | Giải thích vai trò |
 |---|---|---|
-| `PROD_SERVER_HOST` | `103.72.98.27` | IP của máy chủ iNET Cloud Linux |
-| `PROD_SERVER_PORT` | `24700` | Cổng SSH bảo mật của iNET |
-| `PROD_SERVER_USER` | `root` | User SSH máy chủ |
-| `PROD_SERVER_SSH_KEY` | `-----BEGIN OPENSSH PRIVATE KEY-----...` | Private Key SSH để GitHub Action kết nối |
-| `GHCR_USERNAME` | `dinhkhacdien0903` | Tài khoản GitHub |
-| `GHCR_TOKEN` | Token PAT GitHub (Quyền `read:packages`) | Cho phép VPS kéo image riêng tư từ GHCR |
+| `PROD_SERVER_HOST` | `103.72.98.27` | Địa chỉ IP máy chủ iNET Production |
+| `PROD_SERVER_PORT` | `24700` | Cổng SSH bảo mật của máy chủ iNET |
+| `PROD_SERVER_USER` | `root` | Tài khoản SSH trên máy chủ |
+| `PROD_SERVER_SSH_KEY` | *(Nội dung Private Key `id_rsa` / `id_ed25519`)* | Khóa bí mật SSH (dùng chung với `anthill_be`) |
+| `GHCR_USERNAME` | `dinhkhacdien0903` | Tên người dùng GitHub sở hữu Packages |
+| `GHCR_TOKEN` | *(Personal Access Token - PAT)* | GitHub PAT có quyền `read:packages` để VPS pull image |
 
-#### 2. Workflow GitHub Actions (`.github/workflows/deploy-production.yml`)
-Workflow đã được thiết lập tự động kích hoạt khi push code vào nhánh `main` hoặc tạo tag release `v*`.
+> [!TIP]
+> **Cách tạo nhanh GitHub Personal Access Token (`GHCR_TOKEN`):**  
+> 1. Trên GitHub, vào **Avatar góc phải $\to$ Settings $\to$ Developer Settings $\to$ Personal access tokens $\to$ Tokens (classic)**.  
+> 2. Bấm **Generate new token (classic)**, đặt tên là `INET_VPS_PULL_PACKAGES`.  
+> 3. Tích chọn duy nhất quyền: **`read:packages`** (hoặc `write:packages` nếu cần).  
+> 4. Bấm **Generate**, copy chuỗi token và dán vào secret `GHCR_TOKEN` trên cả repo `anthill_be` lẫn `social_notification`.
 
-Quy trình deploy trên server bao gồm:
-1. Đồng bộ file `docker-compose.prod.yml` mới nhất qua `rsync`.
-2. Tự động ghi mã `IMAGE_TAG=sha-<commit>` vào file `.env` tại `/opt/tokienadventure/social_listener/.env`.
-3. Kéo Image mới từ GHCR và khởi động lại container:
+---
+
+#### 4. Chi tiết Workflow GitHub Actions: `.github/workflows/deploy-production.yml`
+
+File cấu hình đã được tạo sẵn tại đường dẫn [`.github/workflows/deploy-production.yml`](file:///workspaces/social_notification/.github/workflows/deploy-production.yml). Cấu trúc gồm 3 jobs:
+
+```yaml
+name: deploy-production
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: dinhkhacdien0903/social_notification/facebook
+
+jobs:
+  validate:
+    name: Lint & Test (Rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies (SQLite & OpenSSL)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsqlite3-dev pkg-config libssl-dev
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust tests
+        working-directory: ./facebook
+        run: cargo test --verbose
+
+  docker-publish:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: validate
+    outputs:
+      sha-tag: ghcr.io/dinhkhacdien0903/social_notification/facebook:sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=production
+            type=raw,value=sha-${{ github.sha }}
+            type=sha,prefix=sha-
+            type=ref,event=tag
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./facebook
+          file: ./facebook/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+          cache-to: type=inline
+      - name: Security scan (Trivy)
+        uses: aquasecurity/trivy-action@v0.35.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: docker-publish
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync deployment compose file to server
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz
+          path: facebook/docker-compose.prod.yml
+          remote_path: /opt/tokienadventure/social_listener/docker-compose.prod.yml
+          remote_host: ${{ secrets.PROD_SERVER_HOST || secrets.SERVER_HOST }}
+          remote_port: ${{ secrets.PROD_SERVER_PORT || secrets.SERVER_PORT || 24700 }}
+          remote_user: ${{ secrets.PROD_SERVER_USER || secrets.SERVER_USER }}
+          remote_key: ${{ secrets.PROD_SERVER_SSH_KEY || secrets.SERVER_SSH_KEY }}
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST || secrets.SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER || secrets.SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY || secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.PROD_SERVER_PORT || secrets.SERVER_PORT || 24700 }}
+          script: |
+            set -euo pipefail
+            cd /opt/tokienadventure/social_listener
+
+            # Đảm bảo các thư mục bền vững tồn tại
+            mkdir -p data runtime/profile
+            chmod -R 755 data runtime
+
+            # Gán IMAGE_TAG vào .env
+            if [ -f .env ] && grep -q "^IMAGE_TAG=" .env; then
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=sha-${{ github.sha }}|" .env
+            else
+              echo "IMAGE_TAG=sha-${{ github.sha }}" >> .env
+            fi
+
+            # Đăng nhập GHCR trên host
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
+              -u "${{ secrets.GHCR_USERNAME }}" \
+              --password-stdin
+
+            # Đảm bảo mạng nội bộ anthill_prod_net tồn tại
+            if ! docker network ls --format '{{.Name}}' | grep -q "^anthill_prod_net$"; then
+              echo "Tạo mạng Docker nội bộ anthill_prod_net..."
+              docker network create anthill_prod_net
+            fi
+
+            # Kéo image mới nhất
+            docker compose -f docker-compose.prod.yml pull social-listener
+
+            # Khởi động lại container (Không chạm vào MySQL, Redis, API)
+            docker compose -f docker-compose.prod.yml up -d --no-deps social-listener
+
+            # Vòng lặp kiểm tra Healthcheck probe
+            echo "Đang đợi container social-listener ready..."
+            for i in $(seq 1 30); do
+              STATUS=$(docker inspect \
+                $(docker compose -f docker-compose.prod.yml ps -q social-listener) \
+                --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Container đã healthy sau ${i} lần kiểm tra ($(( i * 10 ))s)!"
+                exit 0
+              fi
+              echo "Lần kiểm tra ${i}/30: status=${STATUS}, đợi 10s..."
+              sleep 10
+            done
+            echo "ERROR: Social Listener không đạt trạng thái healthy sau 300s!"
+            docker compose -f docker-compose.prod.yml logs social-listener --tail=50
+            exit 1
+
+      - name: Verify health endpoint internally via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST || secrets.SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER || secrets.SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY || secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.PROD_SERVER_PORT || secrets.SERVER_PORT || 24700 }}
+          script: |
+            echo "Xác thực liveness & readiness probe..."
+            curl -fsS http://127.0.0.1:8000/health/readiness
+            echo "Social Listener deployment verified successfully!"
+```
+
+---
+
+#### 5. Chuẩn bị máy chủ lần đầu (Server Initial Setup - Chỉ làm 1 lần)
+
+Đăng nhập SSH vào server Ubuntu iNET:
+```bash
+ssh -p 24700 root@103.72.98.27
+```
+
+Thực hiện tạo thư mục và file cấu hình môi trường:
+```bash
+# 1. Tạo thư mục chứa dịch vụ độc lập
+mkdir -p /opt/tokienadventure/social_listener/data
+mkdir -p /opt/tokienadventure/social_listener/runtime/profile
+chmod -R 755 /opt/tokienadventure/social_listener
+
+# 2. Tạo file cấu hình .env (Đảm bảo token khớp 100% với Backend API)
+cat << 'EOF' > /opt/tokienadventure/social_listener/.env
+PORT=8000
+HOST=0.0.0.0
+DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
+FB_BIN_PATH=/app/bin/fb
+CHROME_PROFILE_DIR=/app/runtime/profile
+CRAWL_INTERVAL_SECONDS=300
+MAX_POSTS_PER_CRAWL=5
+FB_TIMEOUT=60
+GROQ_API_KEY=disabled
+GEMINI_API_KEY=disabled
+GEMINI_MODEL=gemini-1.5-flash
+
+# Trỏ thẳng tới container Backend API qua mạng Docker nội bộ anthill_prod_net:
+TO_KIEN_WEBHOOK_URL=http://anthill_prod_api:8080/api/v1/webhooks/social-leads
+SOCIAL_WEBHOOK_TOKEN=ThietLap_Token_Bi_Mat_Trunghop_Voi_Backend_O_Day
+EOF
+
+chmod 600 /opt/tokienadventure/social_listener/.env
+```
+
+---
+
+#### 6. Kích hoạt triển khai & Vận hành thực tế
+
+1. **Tự động triển khai khi push code:**  
+   Mỗi khi bạn commit và push code lên nhánh `main`, GitHub Actions sẽ tự động kích hoạt:
    ```bash
-   docker compose -f docker-compose.prod.yml pull social-listener
-   docker compose -f docker-compose.prod.yml up -d --no-deps social-listener
+   git add .
+   git commit -m "feat: upgrade facebook crawler parsing rules"
+   git push origin main
    ```
-4. Tự động kiểm tra trạng thái Health Probe (`/health/readiness`) với vòng lặp 30 lần (300 giây) trước khi công bố deploy thành công.
+2. **Triển khai theo phiên bản Tag Release (Khuyên dùng cho Production):**
+   ```bash
+   git tag v3.0.1
+   git push origin v3.0.1
+   ```
+3. **Kích hoạt thủ công trên giao diện GitHub (Manual Trigger):**  
+   Truy cập tab **Actions** trên GitHub $\to$ Chọn workflow **`deploy-production`** $\to$ Bấm nút **Run workflow**.
+
+---
+
+#### 7. Sổ tay khôi phục khẩn cấp (Rollback Runbook)
+
+Nếu phiên bản mới phát sinh lỗi ngoại lệ với Chrome hoặc logic crawl, bạn có thể rollback về phiên bản trước đó chỉ trong **5 giây** mà không cần build lại:
+
+```bash
+# Đăng nhập máy chủ:
+ssh -p 24700 root@103.72.98.27
+cd /opt/tokienadventure/social_listener
+
+# 1. Đổi IMAGE_TAG trong .env sang commit SHA trước đó (ví dụ sha-abc1234):
+sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=sha-abc1234|" .env
+
+# 2. Khởi chạy lại container với image cũ:
+docker compose -f docker-compose.prod.yml up -d --no-deps social-listener
+
+# 3. Kiểm tra container đã phục hồi:
+docker compose -f docker-compose.prod.yml ps
+```
 
 ---
 

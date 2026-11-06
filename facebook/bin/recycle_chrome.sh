@@ -47,6 +47,7 @@ fi
 # 5. Launch Google Chrome with stealth flags and persistent profile directory
 # - No SwiftShader WebGL fingerprint
 # - Images enabled to allow tracking beacons (/ajax/bz) and prevent headless scraper detection
+# - Heavy video/audio streams blocked via host-resolver-rules and document-user-activation-required
 echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $CHROME_PROFILE_DIR..."
 /opt/google/chrome/chrome \
     --headless=new \
@@ -58,7 +59,7 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --media-cache-size=1 \
     --disable-component-update \
     --disable-domain-reliability \
-    --disable-features=OptimizationGuideModelDownloading,OptimizationHints,MediaRouter,Translate,WebUIOmniboxPopup,CalculateNativeWinOcclusion,AudioServiceOutOfProcess,OnDeviceModel \
+    --disable-features=OptimizationGuideModelDownloading,OptimizationHints,MediaRouter,Translate,WebUIOmniboxPopup,CalculateNativeWinOcclusion,AudioServiceOutOfProcess,OnDeviceModel,MediaStream,WebRtcHideLocalIpsWithMdns,PreloadMediaEngagementData \
     --disable-background-timer-throttling \
     --disable-renderer-backgrounding \
     --remote-debugging-port=9222 \
@@ -70,9 +71,13 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --disable-default-apps \
     --disable-extensions \
     --mute-audio \
+    --autoplay-policy=document-user-activation-required \
+    --disable-speech-api \
+    --disable-media-session-api \
+    --host-resolver-rules="MAP *video*.fbcdn.net ~NOTFOUND, MAP *video*.facebook.com ~NOTFOUND" \
     --disable-breakpad \
     --disable-crash-reporter \
-    --js-flags="--max-old-space-size=512" \
+    --js-flags="--max-old-space-size=256" \
     --no-default-browser-check \
     --no-first-run \
     --disable-blink-features=AutomationControlled \
