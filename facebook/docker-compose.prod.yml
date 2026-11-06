@@ -5,10 +5,12 @@
 
 services:
   social-listener:
+    # 1) Image tải từ GHCR (ưu tiên cho CI/CD tự động từ GitHub Actions)
+    # 2) Hoặc có thể build thủ công trên server nếu cần: docker compose -f docker-compose.prod.yml build
+    image: ${SOCIAL_IMAGE:-ghcr.io/dinhkhacdien0903/social_notification/facebook:${IMAGE_TAG:-production}}
     build:
       context: .
       dockerfile: Dockerfile
-    image: anthill-social-listener:latest
     container_name: anthill_prod_social_listener
     restart: unless-stopped
     init: true
@@ -43,10 +45,9 @@ services:
       - TO_KIEN_WEBHOOK_URL=${TO_KIEN_WEBHOOK_URL:-http://anthill_prod_api:8080/api/v1/webhooks/social-leads}
       - TO_KIEN_TOKEN=${TO_KIEN_TOKEN:-${SOCIAL_WEBHOOK_TOKEN:?Vui long thiet lap TO_KIEN_TOKEN hoac SOCIAL_WEBHOOK_TOKEN}}
     volumes:
+      # Dữ liệu SQLite bền vững và Chrome Profile
       - ./data:/app/data
       - ./runtime/profile:/app/runtime/profile
-      - ./bin:/app/bin
-      - ./js:/app/js
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/readiness"]
       interval: 20s

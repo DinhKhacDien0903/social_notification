@@ -305,6 +305,19 @@ docker compose -f compose.prod.yml ps
 
 Nếu bạn muốn tách rời mã nguồn Social Listener ra một thư mục riêng biệt `/opt/tokienadventure/social_listener/` để cập nhật độc lập mà không can thiệp vào file `compose.prod.yml` của Backend:
 
+#### 1. Đánh giá Ưu điểm & Nhược điểm kỹ thuật
+
+| Tiêu chí so sánh | Phương án 1: Tích hợp vào `compose.prod.yml` gốc | Phương án 2: Triển khai độc lập chung mạng `anthill_prod_net` |
+|---|---|---|
+| **Chu kỳ phát hành (Release Lifecycle)** | Bị ràng buộc với Backend. Mỗi lần cập nhật Social phải đụng vào thư mục chứa core backend. | **Độc lập 100%**: Cập nhật, restart, fix bug Social Listener hoàn toàn không chạm tới API, MySQL, Redis, MinIO. |
+| **Bảo vệ hệ thống cốt lõi (Blast Radius)** | Rủi ro cao hơn: Gõ nhầm lệnh hoặc lỗi cú pháp YAML có thể kéo theo gián đoạn toàn bộ dịch vụ đặt tour. | **An toàn tuyệt đối**: Lỗi hay crash của container Chrome/Social chỉ nằm trong phạm vi riêng, zero-impact tới Backend. |
+| **Tích hợp CI/CD (GitHub Actions)** | Khó phân quyền GitHub Actions do 2 repo khác nhau cùng ghi vào 1 file compose. | **Tối ưu chuẩn mực**: Repo `social_notification` tự quản lý quy trình CI/CD và SSH deploy riêng biệt. |
+| **Quản lý biến môi trường (.env)** | Tất cả dồn vào 1 file `.env` chung, dễ làm lộ token mật khẩu DB / Payment sang tiến trình khác. | **Gọn gàng & Bảo mật**: File `.env` độc lập, chỉ chứa đúng các biến phục vụ crawler và webhook token. |
+| **Giao tiếp hai chiều & Bảo mật mạng** | Gọi qua tên service trong cùng Compose. | **Tương đương 100%**: Nhờ cờ `external: true`, 2 bên gọi nhau qua IP/DNS container nội bộ, không mở port ra Internet. |
+| **Nhược điểm cần lưu ý** | Không cô lập được chu kỳ sống. | 1. Cần mạng `anthill_prod_net` tạo trước.<br>2. Không dùng được chỉ thị `depends_on` trực tiếp qua Compose.<br>3. Cần đồng bộ thủ công `SOCIAL_WEBHOOK_TOKEN` giữa 2 file `.env`. |
+
+#### 2. Thao tác thiết lập thủ công trên Server
+
 ```bash
 # 1. Copy mã nguồn vào thư mục riêng:
 mkdir -p /opt/tokienadventure/social_listener
@@ -334,6 +347,41 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 *(Lưu ý: Bạn vẫn cần đảm bảo trong `.env` của Backend API có biến `SocialListener__WebhookToken` trùng khớp và `SocialListener__BaseUrl=http://anthill_prod_social_listener:8000`)*.
+
+---
+
+### PHƯƠNG ÁN 3 (CHUẨN ENTERPRISE): TỰ ĐỘNG HÓA CI/CD VỚI GITHUB ACTIONS (TƯƠNG TỰ ANTHILL BACKEND)
+
+Thay vì biên dịch Rust thủ công tốn CPU/RAM trên VPS, hệ thống áp dụng mô hình CI/CD tương tự như `anthill_be`:
+1. **GitHub Actions Runner** tự động chạy kiểm thử (`cargo test`), biên dịch Rust và đóng gói Google Chrome vào Docker image tối ưu.
+2. Tự động đẩy Image lên **GitHub Container Registry (GHCR)**: `ghcr.io/dinhkhacdien0903/social_notification/facebook`.
+3. Tự động SSH vào VPS iNET, kéo image mới về và cập nhật container `anthill_prod_social_listener` trong 10-15 giây mà không tiêu tốn tài nguyên server!
+
+#### 1. Cấu hình GitHub Secrets trong Repository `social_notification`
+
+Truy cập **Settings > Secrets and variables > Actions** trên GitHub repo `social_notification`, bổ sung các Secrets sau (dùng chung thông tin với `anthill_be`):
+
+| Tên GitHub Secret | Giá trị mẫu | Mục đích |
+|---|---|---|
+| `PROD_SERVER_HOST` | `103.72.98.27` | IP của máy chủ iNET Cloud Linux |
+| `PROD_SERVER_PORT` | `24700` | Cổng SSH bảo mật của iNET |
+| `PROD_SERVER_USER` | `root` | User SSH máy chủ |
+| `PROD_SERVER_SSH_KEY` | `-----BEGIN OPENSSH PRIVATE KEY-----...` | Private Key SSH để GitHub Action kết nối |
+| `GHCR_USERNAME` | `dinhkhacdien0903` | Tài khoản GitHub |
+| `GHCR_TOKEN` | Token PAT GitHub (Quyền `read:packages`) | Cho phép VPS kéo image riêng tư từ GHCR |
+
+#### 2. Workflow GitHub Actions (`.github/workflows/deploy-production.yml`)
+Workflow đã được thiết lập tự động kích hoạt khi push code vào nhánh `main` hoặc tạo tag release `v*`.
+
+Quy trình deploy trên server bao gồm:
+1. Đồng bộ file `docker-compose.prod.yml` mới nhất qua `rsync`.
+2. Tự động ghi mã `IMAGE_TAG=sha-<commit>` vào file `.env` tại `/opt/tokienadventure/social_listener/.env`.
+3. Kéo Image mới từ GHCR và khởi động lại container:
+   ```bash
+   docker compose -f docker-compose.prod.yml pull social-listener
+   docker compose -f docker-compose.prod.yml up -d --no-deps social-listener
+   ```
+4. Tự động kiểm tra trạng thái Health Probe (`/health/readiness`) với vòng lặp 30 lần (300 giây) trước khi công bố deploy thành công.
 
 ---
 
