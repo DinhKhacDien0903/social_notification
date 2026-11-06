@@ -97,6 +97,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure remote deployment directory exists
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST || secrets.SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER || secrets.SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY || secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.PROD_SERVER_PORT || secrets.SERVER_PORT || 24700 }}
+          script: |
+            mkdir -p /opt/tokienadventure/social_listener/data /opt/tokienadventure/social_listener/runtime/profile
+            chmod -R 755 /opt/tokienadventure/social_listener
+
       - name: Sync deployment compose file to server
         uses: burnett01/rsync-deployments@7.0.1
         with:
