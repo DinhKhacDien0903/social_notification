@@ -16,7 +16,7 @@ pub struct FacebookCliEngine {
 
 impl FacebookCliEngine {
     pub fn new(fb_bin_path: String, profile_dir: String, fb_cdp: String) -> Self {
-        let url_regex = Regex::new(r"/(?:groups/[^/]+/posts/|posts/|permalink\.php\?story_fbid=)(\d+)").unwrap();
+        let url_regex = Regex::new(r"/(?:groups/[^/]+/posts/|posts/|permalink\.php\?story_fbid=)([a-zA-Z0-9_.-]+)").unwrap();
         Self {
             fb_bin_path,
             profile_dir,
@@ -33,7 +33,7 @@ impl FacebookCliEngine {
         }
 
         // 1. Nhận diện set=gm.(\d+) hoặc set=pcb.(\d+) từ link ảnh trong nhóm Facebook
-        let gm_regex = Regex::new(r"set=(?:gm|pcb)\.(\d+)").ok()?;
+        let gm_regex = Regex::new(r"set=(?:gm|pcb)\.([a-zA-Z0-9_.-]+)").ok()?;
         if let Some(caps) = gm_regex.captures(text) {
             if let Some(m) = caps.get(1) {
                 return Some(m.as_str().to_string());
@@ -41,22 +41,22 @@ impl FacebookCliEngine {
         }
 
         // 2. Nhận diện multi_permalinks=(\d+)
-        let mp_regex = Regex::new(r"multi_permalinks=(\d+)").ok()?;
+        let mp_regex = Regex::new(r"multi_permalinks=([a-zA-Z0-9_.-]+)").ok()?;
         if let Some(caps) = mp_regex.captures(text) {
             if let Some(m) = caps.get(1) {
                 return Some(m.as_str().to_string());
             }
         }
 
-        // 3. Regex chuẩn: /groups/.../posts/(\d+), /posts/(\d+), permalink.php?story_fbid=(\d+)
+        // 3. Regex chuẩn: /groups/.../posts/([a-zA-Z0-9_.-]+), /posts/([a-zA-Z0-9_.-]+), permalink.php?story_fbid=([a-zA-Z0-9_.-]+)
         if let Some(caps) = self.url_regex.captures(text) {
             if let Some(m) = caps.get(1) {
                 return Some(m.as_str().to_string());
             }
         }
 
-        // 4. story_fbid=(\d+)
-        let story_fbid_regex = Regex::new(r"[?&]story_fbid=(\d+)").ok()?;
+        // 4. story_fbid=
+        let story_fbid_regex = Regex::new(r"[?&]story_fbid=([a-zA-Z0-9_.-]+)").ok()?;
         if let Some(caps) = story_fbid_regex.captures(text) {
             if let Some(m) = caps.get(1) {
                 return Some(m.as_str().to_string());
@@ -407,12 +407,45 @@ impl FacebookEngine for FacebookCliEngine {
                 ref_id.trim_matches('/').replace('/', "_")
             };
 
-            let canonical_url = if clean_post_id.starts_with("anon_") || clean_post_id.contains('?') || clean_post_id.contains('&') {
-                format!("https://www.facebook.com/groups/{}/", group_id)
-            } else if !url.is_empty() && url.starts_with("http") && !url.contains("/posts/photo") && !url.contains("set=gm.") {
+            let canonical_url = if !url.is_empty()
+                && url.starts_with("http")
+                && (url.contains("/posts/")
+                    || url.contains("story_fbid")
+                    || url.contains("/permalink")
+                    || url.contains("pfbid")
+                    || url.contains("/videos/")
+                    || url.contains("/reel/"))
+            {
                 url.to_string()
-            } else {
+            } else if !clean_post_id.starts_with("anon_")
+                && !clean_post_id.contains('?')
+                && !clean_post_id.contains('&')
+            {
                 format!("https://www.facebook.com/groups/{}/posts/{}/", group_id, clean_post_id)
+            } else {
+                let words: Vec<&str> = text
+                    .split_whitespace()
+                    .filter(|w| !w.starts_with("http") && !w.starts_with('#'))
+                    .take(8)
+                    .collect();
+                if !words.is_empty() {
+                    let query = words.join(" ");
+                    let encoded: String = query
+                        .bytes()
+                        .map(|b| {
+                            if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
+                                (b as char).to_string()
+                            } else if b == b' ' {
+                                "+".to_string()
+                            } else {
+                                format!("%{:02X}", b)
+                            }
+                        })
+                        .collect();
+                    format!("https://www.facebook.com/groups/{}/search/?q={}", group_id, encoded)
+                } else {
+                    format!("https://www.facebook.com/groups/{}/", group_id)
+                }
             };
 
             let source_created_at = Self::parse_facebook_time(_time_str);
