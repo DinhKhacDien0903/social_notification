@@ -35,7 +35,7 @@ services:
       - FB_BIN_PATH=/app/bin/fb
       - CHROME_PROFILE_DIR=/app/runtime/profile
       - CRAWL_INTERVAL_SECONDS=${CRAWL_INTERVAL_SECONDS:-300}
-      - MAX_POSTS_PER_CRAWL=${MAX_POSTS_PER_CRAWL:-5}
+      - MAX_POSTS_PER_CRAWL=${MAX_POSTS_PER_CRAWL:-10}
       - FB_CDP=9222
       - FB_TIMEOUT=${FB_TIMEOUT:-120}
       - FB_PROXY=${FB_PROXY:-}

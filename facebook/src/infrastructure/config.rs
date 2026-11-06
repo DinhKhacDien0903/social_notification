@@ -55,7 +55,7 @@ impl AppConfig {
             max_posts_per_crawl: env::var("MAX_POSTS_PER_CRAWL")
                 .ok()
                 .and_then(|i| i.parse().ok())
-                .unwrap_or(5),
+                .unwrap_or(10),
             fb_cdp: env::var("FB_CDP").unwrap_or_else(|_| "9222".to_string()),
         }
     }

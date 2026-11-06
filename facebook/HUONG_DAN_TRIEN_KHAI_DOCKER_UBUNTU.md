@@ -124,7 +124,7 @@ Hai dịch vụ giao tiếp nội bộ với nhau trong mạng Docker thông qua
 | `SocialListener__WebhookToken`| `api` (.NET) | Phải trùng khớp với `TO_KIEN_TOKEN` | Token bí mật dùng để xác thực các request Webhook gửi tới. |
 | `DATABASE_URL` | `social-listener` | `sqlite:///app/data/social_listener.db?mode=rwc` | Đường dẫn CSDL SQLite bền vững trong container. |
 | `CRAWL_INTERVAL_SECONDS` | `social-listener` | `300` (5 phút) | Chu kỳ quét mặc định mỗi nhóm (có tự động Jitter ±5%). |
-| `MAX_POSTS_PER_CRAWL` | `social-listener` | `5` | Quét 5 bài viết mới nhất mỗi lần để giảm thời gian xử lý và tải CPU. |
+| `MAX_POSTS_PER_CRAWL` | `social-listener` | `10` | Quét 10 bài viết mới nhất mỗi lần (tối ưu cho chu kỳ quét 25-30 phút). |
 | `GROQ_API_KEY` | `social-listener` | Key Groq hoặc `disabled` | Tầng 2 AI phân loại lead (hỗ trợ các model tốc độ cao của Groq). |
 | `GEMINI_API_KEY` | `social-listener` | Key Gemini hoặc `disabled` | Tầng 2 AI phân loại lead dự phòng (Gemini 1.5 Flash). |
 
@@ -333,7 +333,7 @@ DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
 FB_BIN_PATH=/app/bin/fb
 CHROME_PROFILE_DIR=/app/runtime/profile
 CRAWL_INTERVAL_SECONDS=300
-MAX_POSTS_PER_CRAWL=5
+MAX_POSTS_PER_CRAWL=10
 FB_TIMEOUT=60
 GROQ_API_KEY=disabled
 GEMINI_API_KEY=disabled
@@ -611,7 +611,7 @@ DATABASE_URL=sqlite:///app/data/social_listener.db?mode=rwc
 FB_BIN_PATH=/app/bin/fb
 CHROME_PROFILE_DIR=/app/runtime/profile
 CRAWL_INTERVAL_SECONDS=300
-MAX_POSTS_PER_CRAWL=5
+MAX_POSTS_PER_CRAWL=10
 FB_TIMEOUT=60
 GROQ_API_KEY=disabled
 GEMINI_API_KEY=disabled
