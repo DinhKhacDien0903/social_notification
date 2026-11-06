@@ -1,0 +1,8 @@
+target/
+runtime/profile/
+data/
+.git
+.github
+*.db
+*.db-journal
+*.log

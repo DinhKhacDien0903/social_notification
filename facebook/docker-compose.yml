@@ -16,6 +16,11 @@ services:
           memory: 1024M
     ports:
       - "8000:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -27,7 +32,7 @@ services:
       - CRAWL_INTERVAL_SECONDS=600
       - MAX_POSTS_PER_CRAWL=5
       - FB_CDP=9222
-      - FB_TIMEOUT=60
+      - FB_TIMEOUT=120
       - FB_PROXY=${FB_PROXY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-disabled}
       - GROQ_PRIMARY_MODEL=${GROQ_PRIMARY_MODEL:-openai/gpt-oss-120b}

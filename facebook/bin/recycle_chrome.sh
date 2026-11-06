@@ -54,8 +54,8 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
 /opt/google/chrome/chrome \
     --headless=new \
     --no-sandbox \
-    --disable-dev-shm-usage \
     --disable-gpu \
+    --disable-software-rasterizer \
     --disk-cache-dir=/dev/shm/chrome-cache \
     --disk-cache-size=10485760 \
     --media-cache-size=1 \
@@ -78,7 +78,7 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --disable-media-session-api \
     --disable-breakpad \
     --disable-crash-reporter \
-    --js-flags="--max-old-space-size=256" \
+    --js-flags="--max-old-space-size=512" \
     --no-default-browser-check \
     --no-first-run \
     --disable-blink-features=AutomationControlled \
@@ -96,6 +96,7 @@ echo "[Chrome-Recycle] Waiting for Chrome CDP port 9222 to become available..."
 for i in {1..30}; do
     if curl -s -H "Host: 127.0.0.1:9222" http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
         echo "[Chrome-Recycle] Chrome CDP is ready on port 9222 (PID: $CHROME_PID)."
+        sleep 1
         break
     fi
     sleep 0.5

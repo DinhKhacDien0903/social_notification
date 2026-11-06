@@ -93,6 +93,29 @@ impl FacebookCliEngine {
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             }
         }
+
+        // Chrome có thể đã bị crash hoặc chưa khởi động, kích hoạt tự phục hồi (Self-Healing)
+        warn!("Chrome CDP unreachable on port {}. Attempting auto-recovery via recycle script...", port);
+        Self::trigger_chrome_recycle().await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        for _ in 1..=5 {
+            if let Ok(resp) = client
+                .get(&version_url)
+                .header("Host", format!("127.0.0.1:{}", port))
+                .send()
+                .await
+            {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(ws) = json.get("webSocketDebuggerUrl").and_then(|w| w.as_str()) {
+                        info!("Chrome restored successfully. Resolved CDP WebSocket URL: {}", ws);
+                        return ws.to_string();
+                    }
+                }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
         fb_cdp.to_string()
     }
 
@@ -295,9 +318,9 @@ impl FacebookEngine for FacebookCliEngine {
         // Phân giải WebSocket URL chính xác từ Chrome CDP
         let cdp_target = Self::resolve_cdp_target(&self.fb_cdp).await;
 
-        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "90".to_string());
-        let timeout_secs: u64 = fb_timeout.parse().unwrap_or(90);
-        let hard_timeout = std::time::Duration::from_secs(timeout_secs + 15);
+        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "120".to_string());
+        let timeout_secs: u64 = fb_timeout.parse().unwrap_or(120);
+        let hard_timeout = std::time::Duration::from_secs(timeout_secs + 20);
 
         let mut cmd = Command::new(&self.fb_bin_path);
         cmd.arg("posts")

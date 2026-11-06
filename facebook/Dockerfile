@@ -59,8 +59,6 @@ COPY js /app/js
 # Create data and runtime profile directories
 RUN mkdir -p /app/data /app/runtime/profile
 
-VOLUME ["/app/data", "/app/runtime/profile"]
-
 EXPOSE 8000
 
 ENV PORT=8000 \

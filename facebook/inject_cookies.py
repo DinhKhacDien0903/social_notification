@@ -11,13 +11,22 @@ def get_cdp_ws_url():
     if cdp_port.startswith("ws://") or cdp_port.startswith("wss://"):
         return cdp_port
     port = cdp_port.lstrip(":")
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as resp:
-            info = json.loads(resp.read().decode())
-            return info.get("webSocketDebuggerUrl")
-    except Exception as e:
-        print(f"[inject_cookies] Failed to query Chrome on port {port}: {e}")
-        return None
+    for attempt in range(1, 4):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/json/version",
+                headers={"Host": f"127.0.0.1:{port}"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                info = json.loads(resp.read().decode())
+                ws = info.get("webSocketDebuggerUrl")
+                if ws:
+                    return ws
+        except Exception as e:
+            if attempt == 3:
+                print(f"[inject_cookies] Failed to query Chrome on port {port}: {e}")
+            time.sleep(1)
+    return None
 
 def resolve_cookie_file(arg_path=None):
     if arg_path and os.path.exists(arg_path):

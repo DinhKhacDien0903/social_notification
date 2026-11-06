@@ -23,6 +23,11 @@ services:
     # An toàn: Chỉ mở port 8000 trên loopback 127.0.0.1 để quản trị curl debug nội bộ VPS
     ports:
       - "127.0.0.1:8000:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - PORT=8000
       - HOST=0.0.0.0
@@ -32,7 +37,7 @@ services:
       - CRAWL_INTERVAL_SECONDS=${CRAWL_INTERVAL_SECONDS:-300}
       - MAX_POSTS_PER_CRAWL=${MAX_POSTS_PER_CRAWL:-5}
       - FB_CDP=9222
-      - FB_TIMEOUT=${FB_TIMEOUT:-60}
+      - FB_TIMEOUT=${FB_TIMEOUT:-120}
       - FB_PROXY=${FB_PROXY:-}
       # AI Gateway (Tùy chọn: Groq + Gemini)
       - GROQ_API_KEY=${GROQ_API_KEY:-disabled}
