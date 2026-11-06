@@ -113,14 +113,7 @@
    // Expand the whole batch together; never cache a card while its text is still collapsed.
    if(pending.length)await waitFor(()=>pending.every(msg=>!more(msg).length),800,30);
   },
-  _scrolls: 0,
-  _maxScrolls: 4,
-  scroll(){
-   if(this._scrolls >= this._maxScrolls) return false;
-   this._scrolls++;
-   window.scrollBy(0,innerHeight*0.7);
-   return true;
-  },
+  scroll(){window.scrollBy(0,innerHeight*0.7)},
   /* the feed sometimes stops loading at the bottom; leaving and re-entering it starts it again */
   async nudge(){scrollBy(0,-innerHeight*2);await new Promise(r=>setTimeout(r,400));scrollTo(0,document.body.scrollHeight);return 1}
  };

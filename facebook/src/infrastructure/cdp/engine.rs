@@ -295,9 +295,9 @@ impl FacebookEngine for FacebookCliEngine {
         // Phân giải WebSocket URL chính xác từ Chrome CDP
         let cdp_target = Self::resolve_cdp_target(&self.fb_cdp).await;
 
-        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "60".to_string());
-        let timeout_secs: u64 = fb_timeout.parse().unwrap_or(60);
-        let hard_timeout = std::time::Duration::from_secs(timeout_secs + 10);
+        let fb_timeout = std::env::var("FB_TIMEOUT").unwrap_or_else(|_| "90".to_string());
+        let timeout_secs: u64 = fb_timeout.parse().unwrap_or(90);
+        let hard_timeout = std::time::Duration::from_secs(timeout_secs + 15);
 
         let mut cmd = Command::new(&self.fb_bin_path);
         cmd.arg("posts")
@@ -328,6 +328,8 @@ impl FacebookEngine for FacebookCliEngine {
                     .env("FB_CDP", &cdp_target)
                     .output()
                     .await;
+                let _ = Command::new("pkill").arg("-9").arg("-f").arg(&self.fb_bin_path).output().await;
+                let _ = tokio::fs::remove_dir_all("/root/.cache/fb").await;
                 return Err(format!("crawl timed out after {}s (fail-fast protection)", hard_timeout.as_secs()).into());
             }
         };
@@ -362,6 +364,8 @@ impl FacebookEngine for FacebookCliEngine {
         if !output.status.success() && stdout.trim().is_empty() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             warn!("facebook-cli stderr: {}", stderr);
+            let _ = Command::new("pkill").arg("-9").arg("-f").arg(&self.fb_bin_path).output().await;
+            let _ = tokio::fs::remove_dir_all("/root/.cache/fb").await;
             return Err(format!("facebook-cli exited with error: {}", stderr).into());
         }
         let mut results = Vec::new();

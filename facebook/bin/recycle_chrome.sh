@@ -5,7 +5,9 @@ echo "[Chrome-Recycle] Starting Chrome recycle procedure..."
 
 CHROME_PROFILE_DIR="/app/runtime/profile/chrome"
 
-# 1. Gracefully terminate existing Chrome processes (SIGTERM first to flush SQLite/storage, fallback to SIGKILL)
+# 1. Gracefully terminate existing Chrome & fb daemon processes
+echo "[Chrome-Recycle] Terminating existing fb-cli daemon and Chrome processes..."
+pkill -9 -f "/app/bin/fb" || true
 if pgrep -f "/opt/google/chrome" >/dev/null 2>&1; then
     echo "[Chrome-Recycle] Sending SIGTERM to existing Chrome processes..."
     pkill -15 -f "/opt/google/chrome" || true
@@ -74,7 +76,6 @@ echo "[Chrome-Recycle] Launching new Chrome instance with persistent profile: $C
     --autoplay-policy=document-user-activation-required \
     --disable-speech-api \
     --disable-media-session-api \
-    --host-resolver-rules="MAP *video*.fbcdn.net ~NOTFOUND, MAP *video*.facebook.com ~NOTFOUND" \
     --disable-breakpad \
     --disable-crash-reporter \
     --js-flags="--max-old-space-size=256" \
